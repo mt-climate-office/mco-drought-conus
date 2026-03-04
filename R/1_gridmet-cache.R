@@ -59,6 +59,13 @@ invisible(fs::dir_create(c(interim_dir, base_gridmet)))
   stop(last)
 }
 
+.assert_no_duplicate_times = function(nc_path) {
+  r  = terra::rast(nc_path)
+  d  = as.Date("1900-01-01") + as.numeric(gsub("[^0-9]", "", names(r)))
+  if (anyDuplicated(d)) stop("Duplicate timesteps detected in: ", nc_path)
+  invisible(TRUE)
+}
+
 .gridmet_dates_from_nc = function(nc_path) {
   rb = raster::brick(.abs(nc_path))
   nms = names(rb)
