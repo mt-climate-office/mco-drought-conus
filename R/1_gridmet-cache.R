@@ -1,8 +1,8 @@
 ##############################################################
-# File: R/gridmet_cache.R
-# Title: GridMET local cache (refresh last N years, rebuild merged)
+# File: R/1_gridmet-cache.R
+# Title: GridMET local cache (delete + refresh last N annual raws; NO merge)
 # Author: Dr. Zachary H. Hoylman
-# Date: 10-28-2025
+# Date: 3-4-2026
 # Conventions: "=", |> , explicit pkg::fun namespaces.
 ##############################################################
 
@@ -15,36 +15,20 @@ invisible(fs::dir_create(c(interim_dir, base_gridmet)))
 
 # ---- path helpers ------------------------------------------------------------
 .abs = function(p) as.character(fs::path_abs(fs::path_expand(p)))
-.sh  = function(p) shQuote(.abs(p), type = "sh")
 
 # ---- configuration -----------------------------------------------------------
-.gridmet_var_to_ncname = function(var) {
-  switch(var,
-         pr  = "precipitation_amount",
-         pet = "potential_evapotranspiration",
-         NULL
-  )
-}
-
 .gridmet_url_for_year = function(var, year) {
   sprintf("https://www.northwestknowledge.net/metdata/data/%s_%d.nc", var, year)
 }
 
 .gridmet_dirs = function(var) {
-  raw_dir    = fs::path(base_gridmet, var, "raw")
-  merged_dir = fs::path(base_gridmet, var, "merged")
-  list(raw_dir = raw_dir, merged_dir = merged_dir)
+  raw_dir = fs::path(base_gridmet, var, "raw")
+  list(raw_dir = raw_dir)
 }
 
 .gridmet_year_nc = function(var, year) {
   d = .gridmet_dirs(var)
   fs::path(d$raw_dir, sprintf("%s_%d.nc", var, year))
-}
-
-.gridmet_merged_nc = function(var, merged_name = NULL) {
-  d = .gridmet_dirs(var)
-  if (is.null(merged_name)) merged_name = sprintf("gridmet_%s.nc", var)
-  fs::path(d$merged_dir, merged_name)
 }
 
 # ---- utilities ---------------------------------------------------------------
@@ -59,40 +43,54 @@ invisible(fs::dir_create(c(interim_dir, base_gridmet)))
   stop(last)
 }
 
-.assert_no_duplicate_times = function(nc_path) {
-  r  = terra::rast(nc_path)
-  d  = as.Date("1900-01-01") + as.numeric(gsub("[^0-9]", "", names(r)))
-  if (anyDuplicated(d)) stop("Duplicate timesteps detected in: ", nc_path)
-  invisible(TRUE)
-}
+# Robust duplicate-time check across given annual files (no merge needed)
+.assert_no_duplicate_times_raw = function(nc_files) {
+  nc_files = as.character(nc_files)
+  nc_files = nc_files[fs::file_exists(nc_files)]
+  if (!length(nc_files)) stop("No raw GridMET files found to check.")
 
-.gridmet_dates_from_nc = function(nc_path) {
-  rb = raster::brick(.abs(nc_path))
-  nms = names(rb)
-  dn  = suppressWarnings(as.numeric(substring(nms, 2)))
-  as.Date(dn, origin = "1900-01-01")
+  get_dates = function(f) {
+    r = terra::rast(f)
+    tt = try(terra::time(r), silent = TRUE)
+    if (!inherits(tt, "try-error") && !is.null(tt) && length(tt) == terra::nlyr(r)) {
+      return(as.Date(tt))
+    }
+    nms    = names(r)
+    digits = gsub("[^0-9]", "", nms)
+    d      = suppressWarnings(as.numeric(digits))
+    as.Date("1900-01-01") + d
+  }
+
+  d_all = unlist(lapply(nc_files, get_dates), use.names = FALSE)
+  d_all = d_all[is.finite(as.numeric(d_all))]
+
+  if (anyDuplicated(d_all)) stop("Duplicate timesteps detected across raw files.")
+  invisible(TRUE)
 }
 
 # ---- download raw annuals (idempotent per year) ------------------------------
 gridmet_download_year = function(var, year, overwrite = FALSE) {
   dirs = .gridmet_dirs(var)
   fs::dir_create(dirs$raw_dir)
+
   url = .gridmet_url_for_year(var, year)
   out = .gridmet_year_nc(var, year)
-  
+
   if (fs::file_exists(out) && !overwrite && fs::file_info(out)$size > 0) {
     message("Exists: ", fs::path_expand(out))
     return(invisible(out))
   }
-  
+
   message("Downloading ", var, " ", year)
   .retry(3, 3, {
     utils::download.file(url, out, mode = "wb", quiet = TRUE)
     out
   })
-  
-  if (!fs::file_exists(out) || fs::file_info(out)$size <= 0)
+
+  if (!fs::file_exists(out) || fs::file_info(out)$size <= 0) {
     stop("Download failed or empty file: ", out)
+  }
+
   invisible(out)
 }
 
@@ -101,76 +99,29 @@ gridmet_download_range = function(var, start_year, end_year = as.integer(format(
   invisible(TRUE)
 }
 
-# ---- merge all annuals (fresh build) -----------------------------------------
-gridmet_merge_all = function(var, start_year = 1991, merged_name = NULL) {
-  yrs = start_year:as.integer(format(Sys.Date(), "%Y"))
-  files = vapply(yrs, function(yy) .gridmet_year_nc(var, yy), character(1))
-  files = files[fs::file_exists(files)]
-  if (length(files) == 0L) stop("No raw GridMET files found for ", var)
-  
-  dst = .gridmet_merged_nc(var, merged_name)
-  fs::dir_create(fs::path_dir(dst))
-  
-  tmp = paste0(.abs(dst), ".tmp")
-  cmd = sprintf("cdo -O mergetime %s %s",
-                paste(vapply(files, function(f) .sh(f), character(1)), collapse = " "),
-                shQuote(tmp, type = "sh"))
-  status = system(cmd)
-  if (status != 0) stop("CDO mergetime failed creating merged: ", dst)
-  
-  fs::file_move(tmp, .abs(dst))
-  invisible(dst)
-}
-
-# ---- open merged brick -------------------------------------------------------
-gridmet_open_brick = function(var, merged_name = NULL) {
-  nc = .gridmet_merged_nc(var, merged_name)
-  if (!fs::file_exists(nc)) stop("Merged file not found: ", nc)
-  
-  vname = .gridmet_var_to_ncname(var)
-  rb = try(raster::brick(.abs(nc), varname = vname), silent = TRUE)
-  if (inherits(rb, "try-error")) rb = raster::brick(.abs(nc))
-  
-  nms = names(rb)
-  dn  = suppressWarnings(as.numeric(substring(nms, 2)))
-  dts = as.Date(dn, origin = "1900-01-01")
-  
-  list(rb = rb, dates = dts)
-}
-
-# ---- rebuild merged (purge & rebuild) ----------------------------------------
-gridmet_rebuild_merged = function(var, start_year = 1991, merged_name = NULL) {
-  dst = .gridmet_merged_nc(var, merged_name)
-  if (fs::file_exists(dst)) {
-    message("Deleting merged: ", fs::path_expand(dst))
-    fs::file_delete(dst)
-  }
-  gridmet_merge_all(var, start_year = start_year, merged_name = merged_name)
-  invisible(TRUE)
-}
-
-# ---- REFRESH last N years, then rebuild --------------------------------------
+# ---- refresh last N raw annuals (NO merge) -----------------------------------
 # Behavior:
-#   - Ensures historic raw files exist for years [start_year, current_year]
-#   - Deletes & re-downloads the last n_refresh_years raw annuals
-#   - Deletes merged NetCDF and rebuilds from all raw files
-gridmet_refresh_last_years_and_rebuild = function(
+#   - Identifies the last n_refresh_years: [cy - n_refresh_years + 1, cy]
+#   - Deletes those annual raws if present
+#   - Re-downloads those same years
+#   - Runs a duplicate-time sanity check on just those refreshed years
+gridmet_refresh_last_years_raw = function(
     var,
-    start_year       = 1991,
-    n_refresh_years  = 2,
-    merged_name      = NULL
+    start_year      = 1991,
+    n_refresh_years = 2
 ) {
-  cy  = as.integer(format(Sys.Date(), "%Y"))
-  y0  = max(start_year, cy - n_refresh_years + 1L)
+  cy = as.integer(format(Sys.Date(), "%Y"))
+  y0 = max(start_year, cy - n_refresh_years + 1L)
   yrs_refresh = seq.int(y0, cy)
-  
-  # 1) Ensure historic raws exist (so rebuild won’t miss old years)
-  message("Ensuring historic raw files for ", var, " (", start_year, ":", cy, ")")
-  gridmet_download_range(var, start_year = start_year, end_year = cy)
-  
-  # 2) Delete & re-download last N years
+
   message("Refreshing last ", n_refresh_years, " year(s) for ", var, ": ",
           paste(yrs_refresh, collapse = ", "))
+
+  # ensure raw dir exists
+  dirs = .gridmet_dirs(var)
+  fs::dir_create(dirs$raw_dir)
+
+  # delete + re-download just the last N years
   for (yy in yrs_refresh) {
     f = .gridmet_year_nc(var, yy)
     if (fs::file_exists(f)) {
@@ -179,42 +130,29 @@ gridmet_refresh_last_years_and_rebuild = function(
     }
     gridmet_download_year(var, yy, overwrite = TRUE)
   }
-  
-  # 3) Delete merged and rebuild from all raws
-  message("Rebuilding merged for ", var)
-  gridmet_rebuild_merged(var, start_year = start_year, merged_name = merged_name)
+
+  # sanity check on refreshed years only
+  files = vapply(yrs_refresh, function(yy) .gridmet_year_nc(var, yy), character(1))
+  files = files[fs::file_exists(files)]
+  .assert_no_duplicate_times_raw(files)
+
   invisible(TRUE)
 }
 
-# ---- convenience: refresh PR & PET -------------------------------------------
-# Env overrides:
-#   START_YEAR (default 1991)
-#   GRIDMET_REFRESH_YEARS (default 2)
-gridmet_refresh_pr_pet = function(
-    start_year       = as.integer(Sys.getenv("START_YEAR", "1991")),
-    n_refresh_years  = as.integer(Sys.getenv("GRIDMET_REFRESH_YEARS", "2")),
-    pr_merged_name   = NULL,
-    pet_merged_name  = NULL
+gridmet_refresh_pr_pet_vpd_tmmx_raw = function(
+    start_year      = as.integer(Sys.getenv("START_YEAR", "1991")),
+    n_refresh_years = as.integer(Sys.getenv("GRIDMET_REFRESH_YEARS", "2"))
 ) {
-  gridmet_refresh_last_years_and_rebuild("pr",  start_year, n_refresh_years, pr_merged_name)
-  gridmet_refresh_last_years_and_rebuild("pet", start_year, n_refresh_years, pet_merged_name)
+  gridmet_refresh_last_years_raw("pr",   start_year = start_year, n_refresh_years = n_refresh_years)
+  gridmet_refresh_last_years_raw("pet",  start_year = start_year, n_refresh_years = n_refresh_years)
+  gridmet_refresh_last_years_raw("vpd",  start_year = start_year, n_refresh_years = n_refresh_years)
+  gridmet_refresh_last_years_raw("tmmx", start_year = start_year, n_refresh_years = n_refresh_years)
   invisible(TRUE)
 }
 
-# ---- time CSV writer (optional) ----------------------------------------------
-gridmet_write_time_csv = function(var, merged_name = NULL) {
-  nc = .gridmet_merged_nc(var, merged_name)
-  if (!fs::file_exists(nc)) stop("Merged file not found: ", nc)
-  dts = .gridmet_dates_from_nc(nc)
-  out_csv = fs::path(fs::path_dir(nc), sprintf("gridmet_%s_time.csv", var))
-  readr::write_csv(tibble::tibble(datetime = dts), out_csv)
-  invisible(out_csv)
-}
-
-# ---- auto-run: refresh PR + PET ----------------------------------------------
-# Set GRIDMET_REFRESH_YEARS=2 (default) and START_YEAR=1991 by environment if needed.
+# ---- auto-run (optional) -----------------------------------------------------
 if (sys.nframe() == 0) {
-  message(Sys.time(), " — GridMET refresh (PR + PET): delete last N years, re-download, rebuild")
-  gridmet_refresh_pr_pet()  # uses env overrides
+  message(Sys.time(), " — GridMET refresh (PR + PET + VPD + TMMX): delete + re-download last N years (NO merge)")
+  gridmet_refresh_pr_pet_vpd_tmmx_raw()
   message(Sys.time(), " — GridMET refresh complete")
 }

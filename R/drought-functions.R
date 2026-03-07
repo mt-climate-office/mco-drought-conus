@@ -62,6 +62,33 @@ gamma_fit_spi = function(x, export_opts = 'SPI', return_latest = T, climatology_
 }
 
 
+gamma_fit_vpdi = function(x, export_opts = 'SVPDI', return_latest = T, climatology_length = 30) {
+  library(lmomco)
+  tryCatch({
+    x = as.numeric(x)
+    # Guard against zero VPD (rare but possible)
+    if (any(x == 0, na.rm = T)) x[which(x == 0)] = 0.001
+    x = tail(x, climatology_length)
+    pwm = pwm.ub(x)
+    lmoments_x = pwm2lmom(pwm)
+    fit.gam = pargam(lmoments_x)
+    fit.cdf = cdfgam(x, fit.gam)
+    # Positive = drought/high VPD (matches EDDI convention in this repo)
+    svpdi = qnorm(fit.cdf, mean = 0, sd = 1)
+    if (return_latest == T) {
+      if (export_opts == 'CDF')    return(fit.cdf[length(fit.cdf)])
+      if (export_opts == 'params') return(fit.gam)
+      if (export_opts == 'SVPDI') return(svpdi[length(svpdi)])
+    }
+    if (return_latest == F) {
+      if (export_opts == 'CDF')    return(fit.cdf)
+      if (export_opts == 'params') return(fit.gam)
+      if (export_opts == 'SVPDI') return(svpdi)
+    }
+  }, error = function(cond) return(NA))
+}
+
+
 glo_fit_spei = function(x, export_opts = 'SPEI', return_latest = T, climatology_length = 30) {
   #load the package needed for these computations
   library(lmomco)

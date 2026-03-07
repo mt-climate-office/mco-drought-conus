@@ -1,82 +1,187 @@
 ##############################################################
-# File: R/precipitation-metrics.R
-# Title: Precip metrics (CONUS, tiled, parallel<=12) from local GridMET:
+# File: R/2_precipitation-metrics.R
+# Title: Precip metrics (CONUS, tiled, parallel<=12) from local GridMET raws:
 #        SPI (gamma), % of normal, deviation from normal, percentile.
-#        30-year calendar reference; per-tile COGs; VRT→COG mosaics.
+#        30-year calendar reference; per-tile GeoTIFF/COG; VRT->COG mosaics.
 # Author: Dr. Zachary H. Hoylman
-# Date: 10-28-2025
+# Date: 3-4-2026
 # Conventions: "=", |> , explicit pkg::fun namespaces.
+#
+# PARALLEL STRATEGY NOTE:
+#   mclapply(fork) is used, which is safe here because NO terra SpatRaster
+#   objects are passed across the fork boundary. Workers receive only plain R
+#   objects (file paths, date vectors, sf tiles) and open their own NetCDF
+#   handles + terra sessions independently. This avoids the C++ pointer
+#   corruption that caused the original "non-list result" worker crashes.
 ##############################################################
 
 `%||%` = function(a, b) if (is.null(a)) b else a
+
 .abs_path = function(p) as.character(fs::path_abs(fs::path_expand(p)))
 
-# --- Paths --------------------------------------------------------------------
-project_root = "~/mco-drought-conus"
-data_root    = "~/mco-drought-conus-data"
+# ---- Packages / startup ------------------------------------------------------
+suppressPackageStartupMessages({
+  library(fs)
+  library(sf)
+  library(terra)
+  library(purrr)
+  library(readr)
+  library(ncdf4)
+  library(parallel)
+  library(rnaturalearth)
+})
 
-raw_dir      = .abs_path(fs::path(data_root, "raw"))
-interim_dir  = .abs_path(fs::path(data_root, "interim"))
-derived_dir  = .abs_path(fs::path(data_root, "derived"))
-
-tiles_root   = .abs_path(fs::path(derived_dir, "precip_metrics"))          # temp tiles (all metrics)
-conus_root   = .abs_path(fs::path(derived_dir, "conus_drought"))           # mosaics root
-merged_pr    = .abs_path(fs::path(interim_dir, "gridmet", "pr", "merged", "gridmet_pr.nc"))
-
-invisible(fs::dir_create(c(raw_dir, interim_dir, derived_dir, tiles_root, conus_root)))
-
-# --- Load your drought functions (gamma_fit_spi, etc.) ------------------------
-source_drought_functions = function(path = fs::path(project_root, "drought-functions.R")) {
+# ---- Small IO helpers --------------------------------------------------------
+.dir_create_base = function(path) {
   path = .abs_path(path)
-  if (fs::file_exists(path)) source(path, local = TRUE)
+  if (!dir.exists(path)) dir.create(path, recursive = TRUE, showWarnings = FALSE)
+  invisible(path)
+}
+
+.is_writable_dir = function(path) {
+  path = .abs_path(path)
+  if (!dir.exists(path)) {
+    ok = tryCatch({ .dir_create_base(path); TRUE }, error = function(e) FALSE)
+    if (!ok) return(FALSE)
+  }
+  isTRUE(file.access(path, 2) == 0)
+}
+
+.ensure_writable_dir = function(path, label = "path") {
+  path = .abs_path(path)
+  .dir_create_base(path)
+  if (!.is_writable_dir(path)) {
+    stop("[EACCES] Not writable: ", label, " = ", path,
+         "\nFix on host: ensure the bind-mounted folder is writable by Docker.",
+         "\nExample: chmod -R u+rwX,g+rwX,o+rwX ", shQuote(path))
+  }
+  invisible(path)
+}
+
+# Copy-then-delete (more reliable than rename/move across bind mounts)
+.atomic_copy_into_place = function(src, dst) {
+  src = .abs_path(src); dst = .abs_path(dst)
+  .dir_create_base(fs::path_dir(dst))
+  if (file.exists(dst)) try(unlink(dst), silent = TRUE)
+
+  ok = file.copy(src, dst, overwrite = TRUE)
+  if (!isTRUE(ok) || !file.exists(dst) || file.info(dst)$size <= 0) {
+    stop("[EACCES/IO] Failed to copy '", src, "' -> '", dst, "'")
+  }
+  try(unlink(src), silent = TRUE)
+  invisible(TRUE)
+}
+
+# Quick check for "all nodata / all NA" — samples to avoid full scans
+.has_any_data = function(r) {
+  if (is.null(r)) return(FALSE)
+  if (terra::nlyr(r) < 1) return(FALSE)
+  n = terra::ncell(r)
+  if (is.na(n) || n <= 0) return(FALSE)
+  idx = unique(pmax(1, pmin(n, as.integer(seq(1, n, length.out = min(2000, n))))))
+  v = terra::values(r[[terra::nlyr(r)]], cells = idx, mat = FALSE)
+  any(is.finite(v))
+}
+
+# ---- Paths -------------------------------------------------------------------
+project_root = Sys.getenv("PROJECT_DIR", unset = "~/mco-drought-conus")
+data_root    = Sys.getenv("DATA_DIR",    unset = "~/mco-drought-conus-data")
+
+project_root = .abs_path(project_root)
+data_root    = .abs_path(data_root)
+
+raw_dir     = .abs_path(fs::path(data_root, "raw"))
+interim_dir = .abs_path(fs::path(data_root, "interim"))
+derived_dir = .abs_path(fs::path(data_root, "derived"))
+
+tiles_root  = .abs_path(fs::path(derived_dir, "precip_metrics"))
+conus_root  = .abs_path(fs::path(derived_dir, "conus_drought"))
+
+raw_pr_dir  = .abs_path(fs::path(interim_dir, "gridmet", "pr", "raw"))
+
+# temp dirs (set by run_once.sh; fallbacks here)
+r_temp     = .abs_path(Sys.getenv("R_TEMP_DIR",     unset = fs::path(data_root, "tmp", "R")))
+terra_temp = .abs_path(Sys.getenv("TERRA_TEMP_DIR", unset = fs::path(data_root, "tmp", "terra")))
+
+.dir_create_base(data_root)
+.dir_create_base(fs::path(data_root, "tmp"))
+.dir_create_base(r_temp)
+.dir_create_base(terra_temp)
+
+.ensure_writable_dir(data_root,    "DATA_DIR")
+.ensure_writable_dir(r_temp,       "R_TEMP_DIR")
+.ensure_writable_dir(terra_temp,   "TERRA_TEMP_DIR")
+
+terra::terraOptions(tempdir = terra_temp)
+
+# Output dirs
+.dir_create_base(raw_dir)
+.dir_create_base(interim_dir)
+.dir_create_base(derived_dir)
+.dir_create_base(tiles_root)
+.dir_create_base(conus_root)
+
+.ensure_writable_dir(derived_dir, "derived_dir")
+.ensure_writable_dir(tiles_root,  "tiles_root")
+.ensure_writable_dir(conus_root,  "conus_root")
+
+# ---- Load drought functions into GLOBAL env ----------------------------------
+source_drought_functions = function(path = fs::path(project_root, "R", "drought-functions.R")) {
+  path = .abs_path(path)
+  if (!fs::file_exists(path)) stop("drought-functions.R not found at: ", path)
+  source(path, local = globalenv())
   invisible(TRUE)
 }
 source_drought_functions()
 
-# --- Helpers ------------------------------------------------------------------
-dates_from_layernames = function(spat) {
-  nms = names(spat)
-  digits = gsub("[^0-9]", "", nms)
-  as.Date("1900-01-01") + suppressWarnings(as.numeric(digits))
-}
-
+# ---- Helpers -----------------------------------------------------------------
 conus_geometry = function() {
-  st = rnaturalearth::ne_states(country = "United States of America", returnclass = "sf")
-  st_l48 = st[!(st$name %in% c("Alaska","Hawaii","Puerto Rico")), ]
+  st      = rnaturalearth::ne_states(country = "United States of America", returnclass = "sf")
+  st_l48  = st[!(st$name %in% c("Alaska", "Hawaii", "Puerto Rico")), ]
   sf::st_union(sf::st_make_valid(st_l48)) |> sf::st_as_sf()
 }
 
-# Env: EDGE_BUF_DEG (default 0.1); CLIP_TO_CONUS ("1" to intersect)
 build_tiles_from_extent = function(dx = 2, dy = 2, r_for_align, edge_buf_deg = NULL) {
-  rs  = terra::res(r_for_align)                 # ~0.0416667
+  rs  = terra::res(r_for_align)
   ex  = terra::ext(r_for_align)
+
   buf = as.numeric(Sys.getenv("EDGE_BUF_DEG", "0.1"))
   if (!is.null(edge_buf_deg)) buf = edge_buf_deg
   exb = terra::ext(ex$xmin - buf, ex$xmax + buf, ex$ymin - buf, ex$ymax + buf)
-  
-  nx  = max(1L, round(dx / rs[1])); ny  = max(1L, round(dy / rs[2]))
-  dxA = nx * rs[1]; dyA = ny * rs[2]
-  
-  xs = seq(exb$xmin, exb$xmax, by = dxA); if (tail(xs,1) < exb$xmax - 1e-9) xs = c(xs, exb$xmax)
-  ys = seq(exb$ymin, exb$ymax, by = dyA); if (tail(ys,1) < exb$ymax - 1e-9) ys = c(ys, exb$ymax)
-  
-  eps = 1e-6
-  polys = vector("list", (length(xs)-1)*(length(ys)-1)); k = 0L
-  for (i in seq_len(length(xs)-1)) for (j in seq_len(length(ys)-1)) {
+
+  nx  = max(1L, round(dx / rs[1])); ny = max(1L, round(dy / rs[2]))
+  dxA = nx * rs[1];                  dyA = ny * rs[2]
+
+  xs = seq(exb$xmin, exb$xmax, by = dxA)
+  if (tail(xs, 1) < exb$xmax - 1e-9) xs = c(xs, exb$xmax)
+  ys = seq(exb$ymin, exb$ymax, by = dyA)
+  if (tail(ys, 1) < exb$ymax - 1e-9) ys = c(ys, exb$ymax)
+
+  eps   = 1e-6
+  polys = vector("list", (length(xs) - 1) * (length(ys) - 1)); k = 0L
+  for (i in seq_len(length(xs) - 1)) for (j in seq_len(length(ys) - 1)) {
     k = k + 1L
-    xL = xs[i] - eps; xR = xs[i+1] + eps
-    yB = ys[j] - eps; yT = ys[j+1] + eps
-    polys[[k]] = sf::st_polygon(list(matrix(c(xL,yB, xR,yB, xR,yT, xL,yT, xL,yB), ncol=2, byrow=TRUE)))
+    xL = xs[i]     - eps; xR = xs[i + 1] + eps
+    yB = ys[j]     - eps; yT = ys[j + 1] + eps
+    polys[[k]] = sf::st_polygon(list(matrix(
+      c(xL, yB, xR, yB, xR, yT, xL, yT, xL, yB), ncol = 2, byrow = TRUE
+    )))
   }
+
   tiles = sf::st_sf(tile_id = seq_along(polys), geometry = sf::st_sfc(polys, crs = 4326))
-  if (identical(Sys.getenv("CLIP_TO_CONUS", "0"), "1")) {
-    mask = conus_geometry()
-    tiles = suppressWarnings(sf::st_intersection(sf::st_make_valid(tiles), mask)) |> sf::st_as_sf()
+
+  # CONUS_MASK: compare against "1" explicitly so default "0" does nothing
+  if (identical(Sys.getenv("CLIP_TO_CONUS", "0"), "1") ||
+      identical(Sys.getenv("CONUS_MASK",    "0"), "1")) {
+    mask  = conus_geometry()
+    tiles = suppressWarnings(sf::st_intersection(sf::st_make_valid(tiles), mask)) |>
+              sf::st_as_sf()
   }
+
   tiles
 }
 
-# 30-year calendar ref
+# 30-year calendar reference
 last_30y_indices = function(dates) {
   d_last  = max(dates, na.rm = TRUE)
   md_last = format(d_last, "%m-%d")
@@ -85,6 +190,7 @@ last_30y_indices = function(dates) {
   keep    = which(yrs >= (as.integer(format(d_last, "%Y")) - 29))
   idx[keep]
 }
+
 build_slice_groups = function(n_days, dates) {
   anchors = last_30y_indices(dates)
   purrr::compact(purrr::map(anchors, function(end_i) {
@@ -93,212 +199,362 @@ build_slice_groups = function(n_days, dates) {
     seq(start_i, end_i)
   }))
 }
+
 spi_timescales_days = function(dates) {
-  md = format(dates, "%m-%d")
+  md      = format(dates, "%m-%d")
   wy_len  = (length(md) - tail(which(md == "10-01"), 1)) + 1
   ytd_len = (length(md) - tail(which(md == "01-01"), 1)) + 1
   list(
-    lengths = c(15,30,45,60,90,120,180,365,730, wy_len, ytd_len),
+    lengths = c(15, 30, 45, 60, 90, 120, 180, 365, 730, wy_len, ytd_len),
     names   = c("15d","30d","45d","60d","90d","120d","180d","365d","730d","wy","ytd")
   )
 }
 
-# --- Read PR with terra -------------------------------------------------------
-read_pr_terra_full = function(path = merged_pr) {
-  path = .abs_path(path)
-  if (!fs::file_exists(path)) stop("Merged PR not found: ", path)
-  r = terra::rast(path)
-  d = dates_from_layernames(r)
-  if (terra::nlyr(r) != length(d)) {
-    stop("Layer/time length mismatch: nlyr=", terra::nlyr(r), " vs length(dates)=", length(d))
-  }
-  list(r = r, dates = d, path = path)
-}
-read_pr_terra_tile = function(tile_sf) {
-  io = read_pr_terra_full()
-  tile_sf = sf::st_transform(sf::st_buffer(sf::st_make_valid(tile_sf), 1e-6), 4326)
-  v_tile  = terra::vect(tile_sf)
-  r_tile  = try(terra::crop(io$r, v_tile, snap = "out") |> terra::mask(v_tile), silent = TRUE)
-  if (inherits(r_tile, "try-error")) return(list(r = NULL, dates = io$dates))
-  dxy = dim(r_tile)
-  if (is.null(dxy) || prod(dxy[1:2]) == 0 || terra::nlyr(r_tile) == 0) return(list(r = NULL, dates = io$dates))
-  list(r = r_tile, dates = io$dates)
+# ---- Raw PR file discovery + date parsing ------------------------------------
+.list_raw_pr_files = function(dir = raw_pr_dir) {
+  dir   = .abs_path(dir)
+  if (!fs::dir_exists(dir)) stop("Raw PR directory not found: ", dir)
+  files = fs::dir_ls(dir, regexp = "pr_[0-9]{4}\\.nc$", type = "file")
+  if (!length(files)) stop("No raw PR NetCDF files found in: ", dir)
+  yrs   = suppressWarnings(as.integer(gsub("[^0-9]", "", fs::path_file(files))))
+  files[order(yrs)]
 }
 
-# --- Metric engines -----------------------------------------------------------
+.nc_time_dates = function(nc_path) {
+  nc    = ncdf4::nc_open(nc_path)
+  on.exit(ncdf4::nc_close(nc), add = TRUE)
+
+  tname = NULL
+  if ("day"  %in% names(nc$dim)) tname = "day"
+  if (is.null(tname) && "time" %in% names(nc$dim)) tname = "time"
+  if (is.null(tname)) stop("No time/day dimension found in: ", nc_path)
+
+  vals   = nc$dim[[tname]]$vals
+  units  = nc$dim[[tname]]$units %||% "days since 1900-01-01"
+  origin = sub("^days since\\s+", "", units)
+  as.Date(origin) + as.integer(vals)
+}
+
+# Collect dates for all files without loading raster data — cheap metadata pass
+collect_all_dates = function(files) {
+  dd = lapply(as.character(files), .nc_time_dates)
+  d  = as.Date(unlist(dd, use.names = FALSE))
+  keep = !duplicated(d)
+  list(dates = d[keep], keep_idx = which(keep), files = files)
+}
+
+# ---- Per-worker tile reader: reads from files, crops, returns values matrix --
+# This is called INSIDE each parallel worker so no terra objects cross the fork/
+# socket boundary. Each worker opens only the files it needs, crops to its tile,
+# extracts the values matrix, then closes everything before returning plain R
+# objects (matrix + SpatRaster template as WKT/extent metadata).
+read_tile_values_from_files = function(tile_sf, pr_files, dates, terra_temp_dir) {
+  suppressPackageStartupMessages(library(terra))
+  terra::terraOptions(tempdir = terra_temp_dir)
+
+  tile_sf = sf::st_transform(sf::st_buffer(sf::st_make_valid(tile_sf), 1e-6), 4326)
+  v_tile  = terra::vect(tile_sf)
+
+  vname   = "precipitation_amount"
+
+  rr_list = vector("list", length(pr_files))
+  for (k in seq_along(pr_files)) {
+    r_k = try(
+      terra::rast(paste0("NETCDF:", as.character(pr_files[[k]]), ":", vname)),
+      silent = TRUE
+    )
+    if (inherits(r_k, "try-error")) {
+      return(list(vals = NULL, base_r = NULL, msg = paste("read error:", pr_files[[k]])))
+    }
+    rr_list[[k]] = r_k
+  }
+
+  rfull = do.call(c, rr_list)
+  rm(rr_list); gc(verbose = FALSE)
+
+  # Assign dates (needed for time-based ops downstream, though we only use
+  # positional indexing here; belt-and-suspenders)
+  if (terra::nlyr(rfull) == length(dates)) {
+    terra::time(rfull) = dates
+  }
+
+  r_tile = try(
+    terra::crop(rfull, v_tile, snap = "out") |> terra::mask(v_tile),
+    silent = TRUE
+  )
+  rm(rfull); gc(verbose = FALSE)
+
+  if (inherits(r_tile, "try-error")) {
+    return(list(vals = NULL, base_r = NULL, msg = "crop/mask error"))
+  }
+
+  dxy = dim(r_tile)
+  if (is.null(dxy) || prod(dxy[1:2]) == 0 || terra::nlyr(r_tile) == 0) {
+    return(list(vals = NULL, base_r = NULL, msg = "empty tile after crop/mask"))
+  }
+
+  vals = terra::values(r_tile, mat = TRUE)
+  if (is.null(vals) || nrow(vals) == 0 || ncol(vals) == 0) {
+    return(list(vals = NULL, base_r = NULL, msg = "no values matrix"))
+  }
+
+  # Check for any finite data in a fast sample
+  sample_v = vals[, ncol(vals)]
+  if (!any(is.finite(sample_v))) {
+    return(list(vals = NULL, base_r = NULL, msg = "tile all-NA"))
+  }
+
+  # Keep only the single-layer spatial template (tiny) for reconstructing output rasters
+  base_r = r_tile[[1]]
+  terra::values(base_r) = NA_real_
+  names(base_r) = "metric"
+
+  list(vals = vals, base_r = base_r, msg = "")
+}
+
+# ---- Metric engines ----------------------------------------------------------
 MIN_YEARS = 10L
 
 .require_fun = function(name) {
-  fn = try(get(name), silent = TRUE)
-  if (inherits(fn, "try-error") || !is.function(fn)) stop(name, "() not found; check drought-functions.R")
+  fn = try(get(name, envir = globalenv()), silent = TRUE)
+  if (inherits(fn, "try-error") || !is.function(fn)) {
+    stop(name, "() not found; check drought-functions.R")
+  }
   fn
 }
 
 .spi_from_gamma = function(x_vec) {
-  x = as.numeric(x_vec); x = x[is.finite(x)]
-  if (length(x) < 3 || all(x == 0) || sd(x) == 0) return(NA_real_)
-  fn = .require_fun("gamma_fit_spi")
+  x = as.numeric(x_vec)
+  x = x[is.finite(x)]
+  if (length(x) < 3 || all(x == 0) || stats::sd(x) == 0) return(NA_real_)
+  fn  = .require_fun("gamma_fit_spi")
   val = try(fn(x, export_opts = "SPI", return_latest = TRUE, climatology_length = 30), silent = TRUE)
   if (inherits(val, "try-error") || !is.finite(val)) return(NA_real_)
   as.numeric(val)
 }
-.pon_latest    = function(x_vec) { val = try(percent_of_normal(x_vec, 30), silent = TRUE); if (inherits(val,"try-error")||!is.finite(val)) NA_real_ else as.numeric(val) }
-.dev_latest    = function(x_vec) { val = try(deviation_from_normal(x_vec, 30), silent = TRUE); if (inherits(val,"try-error")||!is.finite(val)) NA_real_ else as.numeric(val) }
-.pctile_latest = function(x_vec) { val = try(compute_percentile(x_vec, 30), silent = TRUE);    if (inherits(val,"try-error")||!is.finite(val)) NA_real_ else as.numeric(val) }
 
-metrics_for_tile_daily = function(tile_sf, periods_days = NULL) {
-  io = read_pr_terra_tile(tile_sf); if (is.null(io$r)) return(list())
-  r = io$r; dates = io$dates
-  vals = terra::values(r, mat = TRUE) # [cells x time]
-  if (is.null(vals)) return(list())
-  
-  period_info = if (is.null(periods_days)) spi_timescales_days(dates)
-  else list(lengths = periods_days, names = paste0(periods_days, "d"))
-  
+.pon_latest = function(x_vec) {
+  val = try(percent_of_normal(x_vec, 30), silent = TRUE)
+  if (inherits(val, "try-error") || !is.finite(val)) NA_real_ else as.numeric(val)
+}
+
+.dev_latest = function(x_vec) {
+  val = try(deviation_from_normal(x_vec, 30), silent = TRUE)
+  if (inherits(val, "try-error") || !is.finite(val)) NA_real_ else as.numeric(val)
+}
+
+.pctile_latest = function(x_vec) {
+  val = try(compute_percentile(x_vec, 30), silent = TRUE)
+  if (inherits(val, "try-error") || !is.finite(val)) NA_real_ else as.numeric(val)
+}
+
+# Safe window sum: returns NA for any row with an NA in the window
+.safe_window_sum = function(vals_mat, idx_vec) {
+  sub = vals_mat[, idx_vec, drop = FALSE]
+  rowSums(sub, na.rm = FALSE)
+}
+
+# ---- Core metric computation (works on plain R matrix, no terra dependency) --
+compute_metrics_from_matrix = function(vals, dates, base_r, periods_days = NULL) {
+  period_info       = if (is.null(periods_days)) spi_timescales_days(dates)
+                      else list(lengths = periods_days, names = paste0(periods_days, "d"))
   groups_per_period = purrr::map(period_info$lengths, build_slice_groups, dates = dates)
-  
+
   compute_one_period = function(p_i) {
     groups = groups_per_period[[p_i]]
-    nm = period_info$names[[p_i]]
-    
-    # desired output layer names
-    spi_nm = paste0("spi_", nm)
-    pon_nm = paste0("precip_pon_", nm)
-    dev_nm = paste0("precip_dev_", nm)
-    pct_nm = paste0("precip_pctile_", nm)
-    
-    base = r[[1]]; names(base) = "metric"
-    
+    nm     = period_info$names[[p_i]]
+
+    spi_nm      = paste0("spi_",          nm)
+    pon_nm      = paste0("precip_pon_",   nm)
+    dev_nm      = paste0("precip_dev_",   nm)
+    pct_nm      = paste0("precip_pctile_",nm)
+    precip_in_nm = paste0("precip_in_",   nm)
+
     if (length(groups) < MIN_YEARS) {
-      z = terra::setValues(base, NA_real_)
-      return(setNames(list(z, z, z, z), c(spi_nm, pon_nm, dev_nm, pct_nm)))
+      z = terra::setValues(base_r, NA_real_)
+      return(setNames(list(z, z, z, z, z), c(spi_nm, pon_nm, dev_nm, pct_nm, precip_in_nm)))
     }
-    
+
     integ = matrix(NA_real_, nrow = nrow(vals), ncol = length(groups))
-    for (g in seq_along(groups)) integ[, g] = rowSums(vals[, groups[[g]], drop = FALSE], na.rm = TRUE)
-    
+    for (g in seq_along(groups)) integ[, g] = .safe_window_sum(vals, groups[[g]])
+
     ok_rows = which(rowSums(is.finite(integ)) >= MIN_YEARS)
-    
     out_spi = out_pon = out_dev = out_pct = rep(NA_real_, nrow(integ))
+
     if (length(ok_rows) > 0) {
       out_spi[ok_rows] = vapply(ok_rows, function(i) .spi_from_gamma(integ[i, ]), numeric(1))
-      out_pon[ok_rows] = vapply(ok_rows, function(i) .pon_latest(integ[i, ]),   numeric(1))
-      out_dev[ok_rows] = vapply(ok_rows, function(i) .dev_latest(integ[i, ]),   numeric(1))
-      out_pct[ok_rows] = vapply(ok_rows, function(i) .pctile_latest(integ[i, ]),numeric(1))
+      out_pon[ok_rows] = vapply(ok_rows, function(i) .pon_latest(integ[i, ]),     numeric(1))
+      out_dev[ok_rows] = vapply(ok_rows, function(i) .dev_latest(integ[i, ]),     numeric(1))
+      out_pct[ok_rows] = vapply(ok_rows, function(i) .pctile_latest(integ[i, ]), numeric(1))
     }
-    
-    r_spi = r_pon = r_dev = r_pct = base
-    names(r_spi) = "spi";    r_spi = terra::setValues(r_spi, out_spi)
-    names(r_pon) = "pon";    r_pon = terra::setValues(r_pon, out_pon)
-    names(r_dev) = "dev";    r_dev = terra::setValues(r_dev, out_dev)
-    names(r_pct) = "pctile"; r_pct = terra::setValues(r_pct, out_pct)
-    
-    setNames(list(r_spi, r_pon, r_dev, r_pct), c(spi_nm, pon_nm, dev_nm, pct_nm))
+
+    # precip_in: raw window sum (mm) converted to inches; only needs 1 valid year
+    ok_rows_in = which(rowSums(is.finite(integ)) >= 1)
+    out_in     = rep(NA_real_, nrow(integ))
+    if (length(ok_rows_in) > 0) {
+      out_in[ok_rows_in] = integ[ok_rows_in, ncol(integ)] / 25.4
+    }
+
+    r_spi = r_pon = r_dev = r_pct = r_in = base_r
+    names(r_spi) = "spi";      r_spi = terra::setValues(r_spi, out_spi)
+    names(r_pon) = "pon";      r_pon = terra::setValues(r_pon, out_pon)
+    names(r_dev) = "dev";      r_dev = terra::setValues(r_dev, out_dev)
+    names(r_pct) = "pctile";   r_pct = terra::setValues(r_pct, out_pct)
+    names(r_in)  = "precip_in";r_in  = terra::setValues(r_in,  out_in)
+
+    setNames(list(r_spi, r_pon, r_dev, r_pct, r_in),
+             c(spi_nm, pon_nm, dev_nm, pct_nm, precip_in_nm))
   }
-  
-  rs = lapply(seq_along(period_info$lengths), compute_one_period)
-  do.call(c, rs) # flatten one level
+
+  rs  = lapply(seq_along(period_info$lengths), compute_one_period)
+  out = do.call(c, rs)
+
+  any_data = any(vapply(out, .has_any_data, logical(1)))
+  if (!isTRUE(any_data)) return(list(.msg = "all metrics are NA for this tile"))
+
+  out
 }
 
-# --- Write per-tile COGs ------------------------------------------------------
-.write_checked = function(r, out_path) {
+# ---- Write per-tile rasters safely ------------------------------------------
+.write_checked = function(r, out_path, tile_id = NA_integer_) {
   out_path = .abs_path(out_path)
-  fs::dir_create(fs::path_dir(out_path))
+  out_dir  = fs::path_dir(out_path)
+  .dir_create_base(out_dir)
+  if (!.is_writable_dir(out_dir)) stop("[EACCES] Output directory not writable: ", out_dir)
+  if (!.has_any_data(r)) stop("Refusing to write all-NA raster: ", out_path)
+
   terra::NAflag(r) = -9999
+
+  pid = Sys.getpid()
+  tmp = fs::path(r_temp, paste0("tmp_", pid, "_tile_", tile_id, "_", fs::path_file(out_path)))
+  if (fs::file_exists(tmp)) try(fs::file_delete(tmp), silent = TRUE)
+
   ok = FALSE
-  try({ terra::writeRaster(r, out_path, filetype = "COG", overwrite = TRUE) ; ok = TRUE }, silent = TRUE)
-  if (!ok) terra::writeRaster(r, out_path, overwrite = TRUE, gdal = c("COMPRESS=LZW","BIGTIFF=IF_SAFER"))
-  if (!fs::file_exists(out_path) || fs::file_info(out_path)$size <= 0) stop("Write failed or empty file: ", out_path)
+  try({ terra::writeRaster(r, tmp, filetype = "COG", overwrite = TRUE); ok = TRUE }, silent = TRUE)
+  if (!ok) {
+    terra::writeRaster(r, tmp, overwrite = TRUE, gdal = c("COMPRESS=LZW", "BIGTIFF=IF_SAFER"))
+  }
+
+  if (!fs::file_exists(tmp) || fs::file_info(tmp)$size <= 0) {
+    stop("Write failed or empty tmp file for: ", out_path)
+  }
+
+  .atomic_copy_into_place(tmp, out_path)
   TRUE
 }
-write_metrics_tiles_daily = function(tile_sf, periods_days = NULL, out_dir = tiles_root) {
-  out_dir = .abs_path(out_dir); fs::dir_create(out_dir)
-  rs = metrics_for_tile_daily(tile_sf = tile_sf, periods_days = periods_days)
-  if (length(rs) == 0) { message("Tile ", tile_sf$tile_id, ": no overlap — skipping."); return(list(ok=TRUE,wrote=0L,paths=character(0),tile_id=tile_sf$tile_id,msg="no-overlap")) }
-  wrote = 0L; paths = character(0)
-  for (nm in names(rs)) {
-    period_dir = fs::path(out_dir, nm); fs::dir_create(period_dir)
-    out = fs::path(period_dir, paste0("tile_", tile_sf$tile_id, ".tif"))
-    .write_checked(rs[[nm]], out)
-    wrote = wrote + 1L; paths = c(paths, out)
+
+write_metrics_for_tile = function(tile_sf, pr_files, dates, periods_days = NULL,
+                                  out_dir = tiles_root, terra_temp_dir = terra_temp) {
+  out_dir = .abs_path(out_dir)
+  .dir_create_base(out_dir)
+  if (!.is_writable_dir(out_dir)) stop("[EACCES] tiles_root not writable: ", out_dir)
+
+  # Step 1: read tile data from files (safe — no shared terra objects)
+  io = read_tile_values_from_files(
+    tile_sf      = tile_sf,
+    pr_files     = pr_files,
+    dates        = dates,
+    terra_temp_dir = terra_temp_dir
+  )
+
+  if (is.null(io$vals)) {
+    return(list(ok = TRUE, wrote = 0L, paths = character(0),
+                tile_id = tile_sf$tile_id, msg = io$msg %||% "no tile data"))
   }
+
+  # Step 2: compute metrics from plain R matrix
+  rs = compute_metrics_from_matrix(
+    vals         = io$vals,
+    dates        = dates,
+    base_r       = io$base_r,
+    periods_days = periods_days
+  )
+
+  if (is.list(rs) && length(rs) == 1 && identical(names(rs), ".msg")) {
+    return(list(ok = TRUE, wrote = 0L, paths = character(0),
+                tile_id = tile_sf$tile_id, msg = rs$.msg))
+  }
+  if (length(rs) == 0) {
+    return(list(ok = TRUE, wrote = 0L, paths = character(0),
+                tile_id = tile_sf$tile_id, msg = "no output"))
+  }
+
+  # Step 3: write per-period GeoTIFFs
+  wrote = 0L
+  paths = character(0)
+
+  for (nm in names(rs)) {
+    period_dir = fs::path(out_dir, nm)
+    .dir_create_base(period_dir)
+    out = fs::path(period_dir, paste0("tile_", tile_sf$tile_id, ".tif"))
+    .write_checked(rs[[nm]], out, tile_id = tile_sf$tile_id)
+    wrote = wrote + 1L
+    paths = c(paths, out)
+  }
+
   list(ok = TRUE, wrote = wrote, paths = paths, tile_id = tile_sf$tile_id, msg = "")
 }
 
-# --- Mosaic (GDAL VRT→COG; terra fallback) -----------------------------------
+# ---- Mosaic (GDAL VRT->COG; terra fallback) ----------------------------------
 .has_gdal_utils = function() requireNamespace("gdalUtilities", quietly = TRUE)
 
 .mosaic_vrt_to_cog = function(src_files, out_tif) {
-  out_tif = .abs_path(out_tif)
-  fs::dir_create(fs::path_dir(out_tif))
-  
+  out_tif   = .abs_path(out_tif)
+  .dir_create_base(fs::path_dir(out_tif))
+
+  src_files = src_files[file.info(src_files)$size > 0]
+  if (!length(src_files)) stop("No non-empty tiles provided for mosaic: ", out_tif)
+
   if (.has_gdal_utils()) {
-    vrt_path = fs::path_temp(paste0("precip_", as.integer(runif(1,1,1e9))), ext = ".vrt")
+    vrt_path = fs::path(r_temp, paste0("precip_", as.integer(stats::runif(1, 1, 1e9)), ".vrt"))
     on.exit(try(fs::file_delete(vrt_path), silent = TRUE), add = TRUE)
-    # keep the simple, previously-working call
+
     gdalUtilities::gdalbuildvrt(gdalfile = src_files, output.vrt = vrt_path)
-    gdalUtilities::gdal_translate(src_dataset = vrt_path, dst_dataset = out_tif, of = "COG",
-                                  co = c("COMPRESS=LZW","PREDICTOR=2","BIGTIFF=IF_SAFER"))
+    gdalUtilities::gdal_translate(
+      src_dataset = vrt_path,
+      dst_dataset = out_tif,
+      of          = "COG",
+      co          = c("COMPRESS=LZW", "PREDICTOR=2", "BIGTIFF=IF_SAFER")
+    )
+
     ok = fs::file_exists(out_tif) && fs::file_info(out_tif)$size > 0
     if (!ok) stop("Mosaic write failed (GDAL): ", out_tif)
     TRUE
   } else {
-    # Fallback: terra mosaic (mean over overlaps) — FIXED argument construction
-    sr  = terra::sprc(src_files)
-    mos = try(do.call(terra::mosaic, list(sr, fun = "mean", na.rm = TRUE)), silent = TRUE)
-    if (inherits(mos, "try-error")) {
-      # try an alternate path: read as SpatRaster stack and mosaic
-      rr  = terra::rast(src_files)
-      mos = terra::mosaic(rr, fun = "mean", na.rm = TRUE)
-    }
+    rr  = terra::rast(src_files)
+    mos = terra::mosaic(rr, fun = "mean", na.rm = TRUE)
     terra::NAflag(mos) = -9999
     terra::writeRaster(mos, out_tif, filetype = "COG", overwrite = TRUE)
-    ok = fs::file_exists(out_tif) && fs::file_info(out_tif)$size > 0
+    ok  = fs::file_exists(out_tif) && fs::file_info(out_tif)$size > 0
     if (!ok) stop("Mosaic write failed (terra): ", out_tif)
     TRUE
   }
 }
 
-# Tiny feather (optional)
-.feather_mosaic = function(tif_path) {
-  if (identical(Sys.getenv("FEATHER_SEAMS", "1"), "0")) return(invisible(TRUE))
-  k = as.integer(Sys.getenv("FEATHER_SIZE", "3")); if (k %% 2 == 0) k = k + 1L
-  r = terra::rast(tif_path)
-  if (!is.numeric(terra::minmax(r)[1])) return(invisible(TRUE))
-  w = matrix(1, nrow = k, ncol = k)
-  r2 = terra::focal(r, w = w, fun = median, na.policy = "omit", na.rm = TRUE, pad = TRUE)
-  tmp = fs::path_temp(paste0("feather_", basename(tif_path)))
-  terra::NAflag(r2) = -9999
-  terra::writeRaster(r2, tmp, filetype = "COG", overwrite = TRUE,
-                     gdal = c("COMPRESS=LZW","PREDICTOR=2","BIGTIFF=IF_SAFER"))
-  fs::file_move(tmp, tif_path)
-  invisible(TRUE)
-}
-
 mosaic_period_dir = function(period_dir_name, last_date_iso, keep_tiles = FALSE) {
   tile_dir = .abs_path(fs::path(tiles_root, period_dir_name))
   if (!fs::dir_exists(tile_dir)) return(FALSE)
+
   tifs = fs::dir_ls(tile_dir, glob = "*.tif", type = "file")
   if (length(tifs) == 0) return(FALSE)
-  
+
   out_tif = fs::path(conus_root, paste0(period_dir_name, ".tif"))
-  
   message("Mosaicking ", length(tifs), " tiles for ", period_dir_name)
+
   ok = FALSE
   try({ ok = .mosaic_vrt_to_cog(tifs, out_tif) }, silent = FALSE)
-  if (!isTRUE(ok)) { warning("Mosaic failed for ", period_dir_name); return(FALSE) }
-  
-  try(.feather_mosaic(out_tif), silent = TRUE)
+  if (!isTRUE(ok)) return(FALSE)
+
   readr::write_lines(last_date_iso, fs::path(conus_root, paste0(period_dir_name, "_time.txt")))
-  
-  if (!keep_tiles) { message("Deleting tiles dir: ", tile_dir); fs::dir_delete(tile_dir) }
+  if (!keep_tiles) try(fs::dir_delete(tile_dir), silent = TRUE)
+
   message("Wrote mosaic: ", out_tif)
   TRUE
 }
 
 mosaic_all_periods_and_cleanup = function(period_dir_names, last_date_iso) {
   keep_tiles = identical(Sys.getenv("KEEP_TILES", "0"), "1")
-  wrote_any = FALSE
+  wrote_any  = FALSE
   for (pd in period_dir_names) {
     ok = FALSE
     try({ ok = mosaic_period_dir(pd, last_date_iso, keep_tiles = keep_tiles) }, silent = FALSE)
@@ -307,91 +563,148 @@ mosaic_all_periods_and_cleanup = function(period_dir_names, last_date_iso) {
   wrote_any
 }
 
-# --- Runner -------------------------------------------------------------------
+# ---- Parallel backend --------------------------------------------------------
+# We use mclapply (fork) here. This is safe because:
+#   - No terra SpatRaster objects are passed into workers (the old crash cause).
+#   - Workers receive only plain R objects: file paths, date vectors, sf tiles.
+#   - Each worker opens its own NetCDF handles and terra session independently.
+# mclapply fork is safe here because workers read from files, not shared terra
+# objects. Each worker is fully independent.
+
+.run_workers = function(tiles_list, pr_files, dates, periods_days,
+                        terra_temp_dir, out_dir, cores) {
+
+  message("Parallel backend: mclapply (", cores, " workers) — reading from files per worker")
+
+  worker_fn = function(i) {
+    tile = tiles_list[[i]]
+    tryCatch(
+      write_metrics_for_tile(
+        tile_sf        = tile,
+        pr_files       = pr_files,
+        dates          = dates,
+        periods_days   = periods_days,
+        out_dir        = out_dir,
+        terra_temp_dir = terra_temp_dir
+      ),
+      error = function(e) list(
+        ok = FALSE, wrote = 0L, paths = character(0),
+        tile_id = tile$tile_id, msg = conditionMessage(e)
+      )
+    )
+  }
+
+  if (cores == 1L) {
+    lapply(seq_along(tiles_list), worker_fn)
+  } else {
+    parallel::mclapply(seq_along(tiles_list), worker_fn,
+                       mc.cores = cores, mc.preschedule = FALSE)
+  }
+}
+
+# ---- Result normalizer -------------------------------------------------------
+.normalize_results = function(results_raw) {
+  lapply(results_raw, function(x) {
+    if (!is.list(x)) {
+      return(list(ok = FALSE, wrote = 0L, paths = character(0),
+                  tile_id = NA_integer_, msg = "non-list result (worker likely OOM-killed)"))
+    }
+    if (is.null(x$msg) || !length(x$msg)) x$msg = ""
+    x$ok      = isTRUE(x$ok)
+    x$wrote   = as.integer(x$wrote   %||% 0L)
+    x$paths   = as.character(x$paths %||% character(0))
+    x$tile_id = suppressWarnings(as.integer(x$tile_id))
+    x$msg     = as.character(x$msg)[1]
+    x
+  })
+}
+
+# ---- Runner ------------------------------------------------------------------
 run_precip_metrics = function() {
   message(Sys.time(), " — Starting precipitation metrics run")
-  Sys.setenv(OMP_NUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1")
-  
-  dx = as.numeric(Sys.getenv("TILE_DX", unset = "2"))
-  dy = as.numeric(Sys.getenv("TILE_DY", unset = "2"))
-  periods_env = Sys.getenv("PERIODS_DAYS", unset = "")
-  tile_ids_env= Sys.getenv("TILE_IDS", unset = "")
-  
+
+  Sys.setenv(
+    OMP_NUM_THREADS    = "1",
+    OPENBLAS_NUM_THREADS = "1",
+    MKL_NUM_THREADS    = "1",
+    GDAL_NUM_THREADS   = "1"
+  )
+
+  dx           = as.numeric(Sys.getenv("TILE_DX",      unset = "2"))
+  dy           = as.numeric(Sys.getenv("TILE_DY",      unset = "2"))
+  periods_env  = Sys.getenv("PERIODS_DAYS", unset = "")
+  tile_ids_env = Sys.getenv("TILE_IDS",     unset = "")
+
   periods_days = if (nzchar(periods_env)) as.numeric(strsplit(periods_env, ",")[[1]]) else NULL
-  
-  requested = as.integer(Sys.getenv("CORES", unset = "12")); if (is.na(requested)) requested = 12
-  cores = max(1, min(12, requested))
+
+  requested = as.integer(Sys.getenv("CORES", unset = "4"))
+  if (is.na(requested)) requested = 4L
+  cores = max(1L, min(12L, requested))
   message("Using ", cores, " worker(s).")
-  
-  io_full = read_pr_terra_full(merged_pr)
-  rfull   = io_full$r
-  dates   = io_full$dates
+
+  # Discover files + dates (metadata only — no raster data loaded in main process)
+  pr_files      = .list_raw_pr_files(raw_pr_dir)
+  date_info     = collect_all_dates(pr_files)
+  dates         = date_info$dates
   last_date_iso = format(max(dates, na.rm = TRUE))
-  message("Merged PR last date: ", last_date_iso)
-  
-  tiles = build_tiles_from_extent(dx = dx, dy = dy, r_for_align = rfull)
-  if (nzchar(tile_ids_env)) { keep_ids = as.integer(strsplit(tile_ids_env, ",")[[1]]); tiles = tiles[tiles$tile_id %in% keep_ids, ] }
+  message("Raw PR last date: ", last_date_iso)
+
+  # Build tile grid using a single lightweight layer for extent/resolution only
+  r_meta = terra::rast(paste0("NETCDF:", as.character(pr_files[[1]]), ":precipitation_amount"))[[1]]
+  tiles  = build_tiles_from_extent(dx = dx, dy = dy, r_for_align = r_meta)
+  rm(r_meta); gc(verbose = FALSE)
+
+  if (nzchar(tile_ids_env)) {
+    keep_ids = as.integer(strsplit(tile_ids_env, ",")[[1]])
+    tiles    = tiles[tiles$tile_id %in% keep_ids, ]
+  }
+
   n_tiles = nrow(tiles)
   message("Processing ", n_tiles, " tile(s)…")
   if (n_tiles == 0) stop("No tiles to process (extent/params mismatch).")
-  
-  worker_fun = function(i) {
-    tile = tiles[i, ]
-    tryCatch(write_metrics_tiles_daily(tile_sf = tile, periods_days = periods_days, out_dir = tiles_root),
-             error = function(e) list(ok = FALSE, wrote = 0L, paths = character(0),
-                                      tile_id = tile$tile_id, msg = conditionMessage(e)))
+
+  # Serialize tiles to plain list — no terra pointers cross process boundaries
+  tiles_list = lapply(seq_len(n_tiles), function(i) tiles[i, ])
+
+  results_raw = .run_workers(tiles_list, pr_files, dates, periods_days,
+                             terra_temp, tiles_root, cores)
+
+  res      = .normalize_results(results_raw)
+  ok_vec   = vapply(res, function(x) isTRUE(x$ok), TRUE)
+  wrote_ct = vapply(res, function(x) as.integer(x$wrote), 0L)
+  all_paths = unlist(lapply(res, `[[`, "paths"), use.names = FALSE)
+
+  errs = unique(vapply(res[!ok_vec], function(x) as.character(x$msg)[1], ""))
+  errs = errs[nzchar(errs)]
+
+  message(sprintf("Tiles OK: %d/%d; total files written: %d",
+                  sum(ok_vec), n_tiles, sum(wrote_ct)))
+
+  skipped_msgs = unique(vapply(res[ok_vec], function(x) as.character(x$msg)[1], ""))
+  skipped_msgs = skipped_msgs[nzchar(skipped_msgs)]
+  if (length(skipped_msgs) > 0) {
+    message("Skip reasons (ok=TRUE, wrote=0):")
+    for (m in utils::head(skipped_msgs, 10)) message("  • ", m)
   }
-  
-  results_raw = NULL
-  use_mclapply = .Platform$OS.type != "windows" && ("mc.cores" %in% names(formals(parallel::mclapply)))
-  if (use_mclapply) {
-    results_raw = try(parallel::mclapply(seq_len(n_tiles), worker_fun, mc.cores = cores, mc.preschedule = FALSE), silent = TRUE)
-    if (inherits(results_raw, "try-error")) use_mclapply = FALSE
+
+  if (length(errs) > 0) {
+    message("Errors:")
+    for (e in utils::head(errs, 12)) message("  • ", e)
   }
-  if (!use_mclapply) {
-    cl = parallel::makeCluster(cores)
-    on.exit(try(parallel::stopCluster(cl), silent = TRUE), add = TRUE)
-    parallel::clusterExport(cl,
-                            varlist = c("tiles","n_tiles","periods_days","tiles_root","write_metrics_tiles_daily",
-                                        "read_pr_terra_tile","read_pr_terra_full","metrics_for_tile_daily",".spi_from_gamma",
-                                        "build_slice_groups","last_30y_indices","dates_from_layernames","merged_pr",
-                                        "spi_timescales_days","MIN_YEARS",".abs_path",".write_checked","%||%"),
-                            envir = environment())
-    parallel::clusterEvalQ(cl, {
-      suppressPackageStartupMessages({ library(terra); library(sf); library(fs); library(purrr) })
-      source(file.path(path.expand("~"), "mco-drought-conus", "drought-functions.R"))
-      TRUE
-    })
-    results_raw = parallel::parLapplyLB(cl, seq_len(n_tiles), worker_fun)
-  }
-  
-  res = lapply(results_raw, function(x){
-    if (!is.list(x)) return(list(ok=FALSE,wrote=0L,paths=character(0),tile_id=NA,msg=as.character(x)))
-    x$ok = isTRUE(x$ok); x$wrote = as.integer(x$wrote %||% 0L)
-    x$paths = as.character(x$paths %||% character(0))
-    x$tile_id = suppressWarnings(as.integer(x$tile_id))
-    x$msg = as.character(x$msg %||% ""); x
-  })
-  ok_vec   = vapply(res, function(x) x$ok, TRUE)
-  wrote_ct = vapply(res, function(x) x$wrote, 0L)
-  all_errs = unique(vapply(res[!ok_vec], function(x) x$msg, ""))
-  all_paths= unlist(lapply(res, `[[`, "paths"), use.names = FALSE)
-  
-  message(sprintf("Tiles OK: %d/%d; total files written: %d", sum(ok_vec), n_tiles, sum(wrote_ct)))
-  if (length(all_errs) > 0) { message("First few unique errors:"); for (e in utils::head(all_errs, 6)) message("  • ", e) }
-  
-  # Mosaics
-  fs::dir_create(conus_root)
-  written_dirs_full = unique(fs::path_dir(all_paths))
-  period_dir_names  = unique(basename(written_dirs_full))
-  if (!length(period_dir_names) && fs::dir_exists(tiles_root))
+
+  .dir_create_base(conus_root)
+
+  period_dir_names = unique(basename(fs::path_dir(all_paths)))
+  if (!length(period_dir_names) && fs::dir_exists(tiles_root)) {
     period_dir_names = basename(fs::dir_ls(tiles_root, type = "directory"))
+  }
+
   message("Mosaicking ", length(period_dir_names), " period(s) to ", conus_root)
-  
+
   mosaic_any = mosaic_all_periods_and_cleanup(period_dir_names, last_date_iso)
-  if (!mosaic_any) message("No mosaics written (no tiles found?).")
+  if (!mosaic_any) message("No mosaics written (no usable tiles found).")
+
   message(Sys.time(), " — precipitation metrics run complete.")
 }
 
-# Auto-run if called via Rscript
 if (sys.nframe() == 0) run_precip_metrics()

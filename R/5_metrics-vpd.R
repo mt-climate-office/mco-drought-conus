@@ -1,8 +1,9 @@
 ##############################################################
-# File: R/3_metrics-spei.R
-# Title: SPEI (CONUS, tiled, parallel) from local GridMET raws:
-#        Standardized Precipitation Evapotranspiration Index (GLO fit).
+# File: R/5_metrics-vpd.R
+# Title: VPD metrics (CONUS, tiled, parallel<=12) from local GridMET raws:
+#        SVPDI (gamma), % of normal, deviation from normal, percentile.
 #        30-year calendar reference; per-tile GeoTIFF/COG; VRT->COG mosaics.
+#        Sign convention: positive = drought (high VPD), matches EDDI.
 # Author: Dr. Zachary H. Hoylman
 # Date: 3-4-2026
 # Conventions: "=", |> , explicit pkg::fun namespaces.
@@ -11,7 +12,7 @@
 #   mclapply(fork) is used, which is safe here because NO terra SpatRaster
 #   objects are passed across the fork boundary. Workers receive only plain R
 #   objects (file paths, date vectors, sf tiles) and open their own NetCDF
-#   handles + terra sessions independently. Mirrors 2_precipitation-metrics.R.
+#   handles + terra sessions independently.
 ##############################################################
 
 `%||%` = function(a, b) if (is.null(a)) b else a
@@ -62,6 +63,7 @@ suppressPackageStartupMessages({
   src = .abs_path(src); dst = .abs_path(dst)
   .dir_create_base(fs::path_dir(dst))
   if (file.exists(dst)) try(unlink(dst), silent = TRUE)
+
   ok = file.copy(src, dst, overwrite = TRUE)
   if (!isTRUE(ok) || !file.exists(dst) || file.info(dst)$size <= 0) {
     stop("[EACCES/IO] Failed to copy '", src, "' -> '", dst, "'")
@@ -70,7 +72,7 @@ suppressPackageStartupMessages({
   invisible(TRUE)
 }
 
-# Quick check for "all nodata / all NA"
+# Quick check for "all nodata / all NA" — samples to avoid full scans
 .has_any_data = function(r) {
   if (is.null(r)) return(FALSE)
   if (terra::nlyr(r) < 1) return(FALSE)
@@ -88,16 +90,16 @@ data_root    = Sys.getenv("DATA_DIR",    unset = "~/mco-drought-conus-data")
 project_root = .abs_path(project_root)
 data_root    = .abs_path(data_root)
 
+raw_dir     = .abs_path(fs::path(data_root, "raw"))
 interim_dir = .abs_path(fs::path(data_root, "interim"))
 derived_dir = .abs_path(fs::path(data_root, "derived"))
 
-tiles_root  = .abs_path(fs::path(derived_dir, "spei_metrics"))
+tiles_root  = .abs_path(fs::path(derived_dir, "vpd_metrics"))
 conus_root  = .abs_path(fs::path(derived_dir, "conus_drought"))
 
-raw_pr_dir  = .abs_path(fs::path(interim_dir, "gridmet", "pr",  "raw"))
-raw_pet_dir = .abs_path(fs::path(interim_dir, "gridmet", "pet", "raw"))
+raw_vpd_dir = .abs_path(fs::path(interim_dir, "gridmet", "vpd", "raw"))
 
-# temp dirs
+# temp dirs (set by run_once.sh; fallbacks here)
 r_temp     = .abs_path(Sys.getenv("R_TEMP_DIR",     unset = fs::path(data_root, "tmp", "R")))
 terra_temp = .abs_path(Sys.getenv("TERRA_TEMP_DIR", unset = fs::path(data_root, "tmp", "terra")))
 
@@ -106,12 +108,14 @@ terra_temp = .abs_path(Sys.getenv("TERRA_TEMP_DIR", unset = fs::path(data_root, 
 .dir_create_base(r_temp)
 .dir_create_base(terra_temp)
 
-.ensure_writable_dir(data_root,  "DATA_DIR")
-.ensure_writable_dir(r_temp,     "R_TEMP_DIR")
-.ensure_writable_dir(terra_temp, "TERRA_TEMP_DIR")
+.ensure_writable_dir(data_root,    "DATA_DIR")
+.ensure_writable_dir(r_temp,       "R_TEMP_DIR")
+.ensure_writable_dir(terra_temp,   "TERRA_TEMP_DIR")
 
 terra::terraOptions(tempdir = terra_temp)
 
+# Output dirs
+.dir_create_base(raw_dir)
 .dir_create_base(interim_dir)
 .dir_create_base(derived_dir)
 .dir_create_base(tiles_root)
@@ -132,8 +136,8 @@ source_drought_functions()
 
 # ---- Helpers -----------------------------------------------------------------
 conus_geometry = function() {
-  st     = rnaturalearth::ne_states(country = "United States of America", returnclass = "sf")
-  st_l48 = st[!(st$name %in% c("Alaska", "Hawaii", "Puerto Rico")), ]
+  st      = rnaturalearth::ne_states(country = "United States of America", returnclass = "sf")
+  st_l48  = st[!(st$name %in% c("Alaska", "Hawaii", "Puerto Rico")), ]
   sf::st_union(sf::st_make_valid(st_l48)) |> sf::st_as_sf()
 }
 
@@ -166,6 +170,7 @@ build_tiles_from_extent = function(dx = 2, dy = 2, r_for_align, edge_buf_deg = N
 
   tiles = sf::st_sf(tile_id = seq_along(polys), geometry = sf::st_sfc(polys, crs = 4326))
 
+  # CONUS_MASK: compare against "1" explicitly so default "0" does nothing
   if (identical(Sys.getenv("CLIP_TO_CONUS", "0"), "1") ||
       identical(Sys.getenv("CONUS_MASK",    "0"), "1")) {
     mask  = conus_geometry()
@@ -195,7 +200,7 @@ build_slice_groups = function(n_days, dates) {
   }))
 }
 
-spei_timescales_days = function(dates) {
+vpd_timescales_days = function(dates) {
   md      = format(dates, "%m-%d")
   wy_len  = (length(md) - tail(which(md == "10-01"), 1)) + 1
   ytd_len = (length(md) - tail(which(md == "01-01"), 1)) + 1
@@ -205,12 +210,12 @@ spei_timescales_days = function(dates) {
   )
 }
 
-# ---- Raw file discovery + date parsing ---------------------------------------
-.list_raw_files = function(dir, var) {
+# ---- Raw VPD file discovery + date parsing -----------------------------------
+.list_raw_vpd_files = function(dir = raw_vpd_dir) {
   dir   = .abs_path(dir)
-  if (!fs::dir_exists(dir)) stop("Raw ", var, " directory not found: ", dir)
-  files = fs::dir_ls(dir, regexp = paste0(var, "_[0-9]{4}\\.nc$"), type = "file")
-  if (!length(files)) stop("No raw ", var, " NetCDF files found in: ", dir)
+  if (!fs::dir_exists(dir)) stop("Raw VPD directory not found: ", dir)
+  files = fs::dir_ls(dir, regexp = "vpd_[0-9]{4}\\.nc$", type = "file")
+  if (!length(files)) stop("No raw VPD NetCDF files found in: ", dir)
   yrs   = suppressWarnings(as.integer(gsub("[^0-9]", "", fs::path_file(files))))
   files[order(yrs)]
 }
@@ -230,109 +235,77 @@ spei_timescales_days = function(dates) {
   as.Date(origin) + as.integer(vals)
 }
 
+# Collect dates for all files without loading raster data — cheap metadata pass
 collect_all_dates = function(files) {
-  dd   = lapply(as.character(files), .nc_time_dates)
-  d    = as.Date(unlist(dd, use.names = FALSE))
+  dd = lapply(as.character(files), .nc_time_dates)
+  d  = as.Date(unlist(dd, use.names = FALSE))
   keep = !duplicated(d)
-  list(dates = d[keep], files = files)
+  list(dates = d[keep], keep_idx = which(keep), files = files)
 }
 
-# Align PR and PET date vectors — return only the overlapping dates and
-# corresponding file-level indices so workers can find the right layers.
-align_pr_pet_dates = function(pr_files, pet_files) {
-  pr_info  = collect_all_dates(pr_files)
-  pet_info = collect_all_dates(pet_files)
-
-  # Build per-file layer offsets so we can map a global date index -> (file, layer)
-  pr_dates  = pr_info$dates
-  pet_dates = pet_info$dates
-
-  # Inner join on date
-  common = intersect(as.character(pr_dates), as.character(pet_dates))
-  if (!length(common)) stop("PR/PET date alignment failed: no overlapping dates.")
-
-  common = sort(as.Date(common))
-  pr_idx  = match(as.character(common), as.character(pr_dates))
-  pet_idx = match(as.character(common), as.character(pet_dates))
-
-  message(sprintf("PR/PET aligned: %s .. %s (%d days)",
-                  format(min(common)), format(max(common)), length(common)))
-
-  list(dates = common, pr_idx = pr_idx, pet_idx = pet_idx,
-       pr_files = pr_files, pet_files = pet_files,
-       pr_dates_all = pr_dates, pet_dates_all = pet_dates)
-}
-
-# ---- Per-worker tile reader: reads PR-PET from files, returns values matrix --
-read_tile_wb_from_files = function(tile_sf, pr_files, pet_files,
-                                   pr_idx, pet_idx, dates,
-                                   terra_temp_dir) {
+# ---- Per-worker tile reader: reads from files, crops, returns values matrix --
+read_tile_values_vpd_from_files = function(tile_sf, vpd_files, dates, terra_temp_dir) {
   suppressPackageStartupMessages(library(terra))
   terra::terraOptions(tempdir = terra_temp_dir)
 
   tile_sf = sf::st_transform(sf::st_buffer(sf::st_make_valid(tile_sf), 1e-6), 4326)
   v_tile  = terra::vect(tile_sf)
 
-  # Read and stack full PR
-  rr_pr = vector("list", length(pr_files))
-  for (k in seq_along(pr_files)) {
-    r_k = try(terra::rast(paste0("NETCDF:", as.character(pr_files[[k]]), ":precipitation_amount")), silent = TRUE)
-    if (inherits(r_k, "try-error")) return(list(vals = NULL, base_r = NULL, msg = paste("PR read error:", pr_files[[k]])))
-    rr_pr[[k]] = r_k
+  vname   = "mean_vapor_pressure_deficit"
+
+  rr_list = vector("list", length(vpd_files))
+  for (k in seq_along(vpd_files)) {
+    r_k = try(
+      terra::rast(paste0("NETCDF:", as.character(vpd_files[[k]]), ":", vname)),
+      silent = TRUE
+    )
+    if (inherits(r_k, "try-error")) {
+      return(list(vals = NULL, base_r = NULL, msg = paste("read error:", vpd_files[[k]])))
+    }
+    rr_list[[k]] = r_k
   }
-  rfull_pr = do.call(c, rr_pr); rm(rr_pr); gc(verbose = FALSE)
 
-  # Read and stack full PET
-  rr_pet = vector("list", length(pet_files))
-  for (k in seq_along(pet_files)) {
-    r_k = try(terra::rast(paste0("NETCDF:", as.character(pet_files[[k]]), ":potential_evapotranspiration")), silent = TRUE)
-    if (inherits(r_k, "try-error")) return(list(vals = NULL, base_r = NULL, msg = paste("PET read error:", pet_files[[k]])))
-    rr_pet[[k]] = r_k
+  rfull = do.call(c, rr_list)
+  rm(rr_list); gc(verbose = FALSE)
+
+  if (terra::nlyr(rfull) == length(dates)) {
+    terra::time(rfull) = dates
   }
-  rfull_pet = do.call(c, rr_pet); rm(rr_pet); gc(verbose = FALSE)
 
-  # Subset to aligned date indices
-  rfull_pr  = rfull_pr[[pr_idx]]
-  rfull_pet = rfull_pet[[pet_idx]]
+  r_tile = try(
+    terra::crop(rfull, v_tile, snap = "out") |> terra::mask(v_tile),
+    silent = TRUE
+  )
+  rm(rfull); gc(verbose = FALSE)
 
-  # Crop to tile
-  r_pr_t = try(terra::crop(rfull_pr,  v_tile, snap = "out") |> terra::mask(v_tile), silent = TRUE)
-  rm(rfull_pr); gc(verbose = FALSE)
-  r_pet_t = try(terra::crop(rfull_pet, v_tile, snap = "out") |> terra::mask(v_tile), silent = TRUE)
-  rm(rfull_pet); gc(verbose = FALSE)
-
-  if (inherits(r_pr_t, "try-error") || inherits(r_pet_t, "try-error")) {
+  if (inherits(r_tile, "try-error")) {
     return(list(vals = NULL, base_r = NULL, msg = "crop/mask error"))
   }
 
-  dxy = dim(r_pr_t)
-  if (is.null(dxy) || prod(dxy[1:2]) == 0 || terra::nlyr(r_pr_t) == 0) {
+  dxy = dim(r_tile)
+  if (is.null(dxy) || prod(dxy[1:2]) == 0 || terra::nlyr(r_tile) == 0) {
     return(list(vals = NULL, base_r = NULL, msg = "empty tile after crop/mask"))
   }
 
-  # Water balance = PR - PET
-  wb   = r_pr_t - r_pet_t
-  rm(r_pr_t, r_pet_t); gc(verbose = FALSE)
-
-  vals = terra::values(wb, mat = TRUE)
+  vals = terra::values(r_tile, mat = TRUE)
   if (is.null(vals) || nrow(vals) == 0 || ncol(vals) == 0) {
     return(list(vals = NULL, base_r = NULL, msg = "no values matrix"))
   }
 
+  # Check for any finite data in a fast sample
   sample_v = vals[, ncol(vals)]
   if (!any(is.finite(sample_v))) {
     return(list(vals = NULL, base_r = NULL, msg = "tile all-NA"))
   }
 
-  base_r = wb[[1]]
+  base_r = r_tile[[1]]
   terra::values(base_r) = NA_real_
   names(base_r) = "metric"
-  rm(wb); gc(verbose = FALSE)
 
   list(vals = vals, base_r = base_r, msg = "")
 }
 
-# ---- Metric engine -----------------------------------------------------------
+# ---- Metric engines ----------------------------------------------------------
 MIN_YEARS = 10L
 
 .require_fun = function(name) {
@@ -343,62 +316,89 @@ MIN_YEARS = 10L
   fn
 }
 
-.spei_from_glo = function(x_vec) {
+.svpdi_from_gamma = function(x_vec) {
   x = as.numeric(x_vec)
   x = x[is.finite(x)]
-  if (length(x) < 3 || stats::sd(x) == 0) return(NA_real_)
-  fn  = .require_fun("glo_fit_spei")
-  val = try(fn(x, export_opts = "SPEI", return_latest = TRUE, climatology_length = 30), silent = TRUE)
+  if (length(x) < 3 || all(x == 0) || stats::sd(x) == 0) return(NA_real_)
+  fn  = .require_fun("gamma_fit_vpdi")
+  val = try(fn(x, export_opts = "SVPDI", return_latest = TRUE, climatology_length = 30), silent = TRUE)
   if (inherits(val, "try-error") || !is.finite(val)) return(NA_real_)
   as.numeric(val)
 }
 
-.safe_window_sum = function(vals_mat, idx_vec) {
-  sub = vals_mat[, idx_vec, drop = FALSE]
-  rowSums(sub, na.rm = FALSE)
+.pon_latest = function(x_vec) {
+  val = try(percent_of_normal(x_vec, 30), silent = TRUE)
+  if (inherits(val, "try-error") || !is.finite(val)) NA_real_ else as.numeric(val)
 }
 
-compute_spei_from_matrix = function(vals, dates, base_r, periods_days = NULL) {
-  period_info       = if (is.null(periods_days)) spei_timescales_days(dates)
+.dev_latest = function(x_vec) {
+  val = try(deviation_from_normal(x_vec, 30), silent = TRUE)
+  if (inherits(val, "try-error") || !is.finite(val)) NA_real_ else as.numeric(val)
+}
+
+.pctile_latest = function(x_vec) {
+  val = try(compute_percentile(x_vec, 30), silent = TRUE)
+  if (inherits(val, "try-error") || !is.finite(val)) NA_real_ else as.numeric(val)
+}
+
+# Safe window mean: VPD is averaged (not summed) over the window
+.safe_window_mean = function(vals_mat, idx_vec) {
+  sub = vals_mat[, idx_vec, drop = FALSE]
+  rowMeans(sub, na.rm = FALSE)
+}
+
+# ---- Core metric computation (works on plain R matrix, no terra dependency) --
+compute_vpd_metrics_from_matrix = function(vals, dates, base_r, periods_days = NULL) {
+  period_info       = if (is.null(periods_days)) vpd_timescales_days(dates)
                       else list(lengths = periods_days, names = paste0(periods_days, "d"))
   groups_per_period = purrr::map(period_info$lengths, build_slice_groups, dates = dates)
 
   compute_one_period = function(p_i) {
     groups = groups_per_period[[p_i]]
     nm     = period_info$names[[p_i]]
-    nm_out = paste0("spei_", nm)
+
+    svpdi_nm = paste0("svpdi_",      nm)
+    pon_nm   = paste0("vpd_pon_",    nm)
+    dev_nm   = paste0("vpd_dev_",    nm)
+    pct_nm   = paste0("vpd_pctile_", nm)
 
     if (length(groups) < MIN_YEARS) {
       z = terra::setValues(base_r, NA_real_)
-      return(setNames(list(z), nm_out))
+      return(setNames(list(z, z, z, z), c(svpdi_nm, pon_nm, dev_nm, pct_nm)))
     }
 
     integ = matrix(NA_real_, nrow = nrow(vals), ncol = length(groups))
-    for (g in seq_along(groups)) integ[, g] = .safe_window_sum(vals, groups[[g]])
+    for (g in seq_along(groups)) integ[, g] = .safe_window_mean(vals, groups[[g]])
 
-    ok_rows  = which(rowSums(is.finite(integ)) >= MIN_YEARS)
-    out_spei = rep(NA_real_, nrow(integ))
+    ok_rows = which(rowSums(is.finite(integ)) >= MIN_YEARS)
+    out_svpdi = out_pon = out_dev = out_pct = rep(NA_real_, nrow(integ))
 
     if (length(ok_rows) > 0) {
-      out_spei[ok_rows] = vapply(ok_rows, function(i) .spei_from_glo(integ[i, ]), numeric(1))
+      out_svpdi[ok_rows] = vapply(ok_rows, function(i) .svpdi_from_gamma(integ[i, ]), numeric(1))
+      out_pon[ok_rows]   = vapply(ok_rows, function(i) .pon_latest(integ[i, ]),       numeric(1))
+      out_dev[ok_rows]   = vapply(ok_rows, function(i) .dev_latest(integ[i, ]),       numeric(1))
+      out_pct[ok_rows]   = vapply(ok_rows, function(i) .pctile_latest(integ[i, ]),   numeric(1))
     }
 
-    r_spei = base_r
-    names(r_spei) = "spei"
-    r_spei = terra::setValues(r_spei, out_spei)
-    setNames(list(r_spei), nm_out)
+    r_svpdi = r_pon = r_dev = r_pct = base_r
+    names(r_svpdi) = "svpdi"; r_svpdi = terra::setValues(r_svpdi, out_svpdi)
+    names(r_pon)   = "pon";   r_pon   = terra::setValues(r_pon,   out_pon)
+    names(r_dev)   = "dev";   r_dev   = terra::setValues(r_dev,   out_dev)
+    names(r_pct)   = "pctile";r_pct   = terra::setValues(r_pct,   out_pct)
+
+    setNames(list(r_svpdi, r_pon, r_dev, r_pct), c(svpdi_nm, pon_nm, dev_nm, pct_nm))
   }
 
   rs  = lapply(seq_along(period_info$lengths), compute_one_period)
   out = do.call(c, rs)
 
   any_data = any(vapply(out, .has_any_data, logical(1)))
-  if (!isTRUE(any_data)) return(list(.msg = "all SPEI metrics are NA for this tile"))
+  if (!isTRUE(any_data)) return(list(.msg = "all metrics are NA for this tile"))
 
   out
 }
 
-# ---- Write per-tile rasters --------------------------------------------------
+# ---- Write per-tile rasters safely ------------------------------------------
 .write_checked = function(r, out_path, tile_id = NA_integer_) {
   out_path = .abs_path(out_path)
   out_dir  = fs::path_dir(out_path)
@@ -426,22 +426,15 @@ compute_spei_from_matrix = function(vals, dates, base_r, periods_days = NULL) {
   TRUE
 }
 
-write_spei_for_tile = function(tile_sf, pr_files, pet_files,
-                               pr_idx, pet_idx, dates,
-                               periods_days = NULL,
-                               out_dir = tiles_root,
-                               terra_temp_dir = terra_temp) {
+write_vpd_metrics_for_tile = function(tile_sf, vpd_files, dates, periods_days = NULL,
+                                      out_dir = tiles_root, terra_temp_dir = terra_temp) {
   out_dir = .abs_path(out_dir)
   .dir_create_base(out_dir)
   if (!.is_writable_dir(out_dir)) stop("[EACCES] tiles_root not writable: ", out_dir)
 
-  # Step 1: read water balance tile from files
-  io = read_tile_wb_from_files(
+  io = read_tile_values_vpd_from_files(
     tile_sf        = tile_sf,
-    pr_files       = pr_files,
-    pet_files      = pet_files,
-    pr_idx         = pr_idx,
-    pet_idx        = pet_idx,
+    vpd_files      = vpd_files,
     dates          = dates,
     terra_temp_dir = terra_temp_dir
   )
@@ -451,8 +444,7 @@ write_spei_for_tile = function(tile_sf, pr_files, pet_files,
                 tile_id = tile_sf$tile_id, msg = io$msg %||% "no tile data"))
   }
 
-  # Step 2: compute SPEI from plain R matrix
-  rs = compute_spei_from_matrix(
+  rs = compute_vpd_metrics_from_matrix(
     vals         = io$vals,
     dates        = dates,
     base_r       = io$base_r,
@@ -468,7 +460,6 @@ write_spei_for_tile = function(tile_sf, pr_files, pet_files,
                 tile_id = tile_sf$tile_id, msg = "no output"))
   }
 
-  # Step 3: write per-period GeoTIFFs
   wrote = 0L
   paths = character(0)
 
@@ -495,7 +486,7 @@ write_spei_for_tile = function(tile_sf, pr_files, pet_files,
   if (!length(src_files)) stop("No non-empty tiles provided for mosaic: ", out_tif)
 
   if (.has_gdal_utils()) {
-    vrt_path = fs::path(r_temp, paste0("spei_", as.integer(stats::runif(1, 1, 1e9)), ".vrt"))
+    vrt_path = fs::path(r_temp, paste0("vpd_", as.integer(stats::runif(1, 1, 1e9)), ".vrt"))
     on.exit(try(fs::file_delete(vrt_path), silent = TRUE), add = TRUE)
 
     gdalUtilities::gdalbuildvrt(gdalfile = src_files, output.vrt = vrt_path)
@@ -553,20 +544,17 @@ mosaic_all_periods_and_cleanup = function(period_dir_names, last_date_iso) {
 }
 
 # ---- Parallel backend --------------------------------------------------------
-.run_workers = function(tiles_list, pr_files, pet_files, pr_idx, pet_idx,
-                        dates, periods_days, terra_temp_dir, out_dir, cores) {
+.run_workers = function(tiles_list, vpd_files, dates, periods_days,
+                        terra_temp_dir, out_dir, cores) {
 
   message("Parallel backend: mclapply (", cores, " workers) — reading from files per worker")
 
   worker_fn = function(i) {
     tile = tiles_list[[i]]
     tryCatch(
-      write_spei_for_tile(
+      write_vpd_metrics_for_tile(
         tile_sf        = tile,
-        pr_files       = pr_files,
-        pet_files      = pet_files,
-        pr_idx         = pr_idx,
-        pet_idx        = pet_idx,
+        vpd_files      = vpd_files,
         dates          = dates,
         periods_days   = periods_days,
         out_dir        = out_dir,
@@ -605,8 +593,8 @@ mosaic_all_periods_and_cleanup = function(period_dir_names, last_date_iso) {
 }
 
 # ---- Runner ------------------------------------------------------------------
-run_spei_metrics = function() {
-  message(Sys.time(), " — Starting SPEI metrics run")
+run_vpd_metrics = function() {
+  message(Sys.time(), " — Starting VPD metrics run")
 
   Sys.setenv(
     OMP_NUM_THREADS      = "1",
@@ -627,19 +615,15 @@ run_spei_metrics = function() {
   cores = max(1L, min(12L, requested))
   message("Using ", cores, " worker(s).")
 
-  # Discover files + align dates (metadata only — no raster data in main process)
-  pr_files  = .list_raw_files(raw_pr_dir,  "pr")
-  pet_files = .list_raw_files(raw_pet_dir, "pet")
-
-  aln           = align_pr_pet_dates(pr_files, pet_files)
-  dates         = aln$dates
-  pr_idx        = aln$pr_idx
-  pet_idx       = aln$pet_idx
+  # Discover files + dates (metadata only — no raster data loaded in main process)
+  vpd_files     = .list_raw_vpd_files(raw_vpd_dir)
+  date_info     = collect_all_dates(vpd_files)
+  dates         = date_info$dates
   last_date_iso = format(max(dates, na.rm = TRUE))
-  message("Aligned last date: ", last_date_iso)
+  message("Raw VPD last date: ", last_date_iso)
 
-  # Build tile grid from a single lightweight PR layer
-  r_meta = terra::rast(paste0("NETCDF:", as.character(pr_files[[1]]), ":precipitation_amount"))[[1]]
+  # Build tile grid using a single lightweight layer for extent/resolution only
+  r_meta = terra::rast(paste0("NETCDF:", as.character(vpd_files[[1]]), ":mean_vapor_pressure_deficit"))[[1]]
   tiles  = build_tiles_from_extent(dx = dx, dy = dy, r_for_align = r_meta)
   rm(r_meta); gc(verbose = FALSE)
 
@@ -649,27 +633,18 @@ run_spei_metrics = function() {
   }
 
   n_tiles = nrow(tiles)
-  message("Processing ", n_tiles, " tile(s)…")
+  message("Processing ", n_tiles, " tile(s)...")
   if (n_tiles == 0) stop("No tiles to process (extent/params mismatch).")
 
+  # Serialize tiles to plain list — no terra pointers cross process boundaries
   tiles_list = lapply(seq_len(n_tiles), function(i) tiles[i, ])
 
-  results_raw = .run_workers(
-    tiles_list     = tiles_list,
-    pr_files       = pr_files,
-    pet_files      = pet_files,
-    pr_idx         = pr_idx,
-    pet_idx        = pet_idx,
-    dates          = dates,
-    periods_days   = periods_days,
-    terra_temp_dir = terra_temp,
-    out_dir        = tiles_root,
-    cores          = cores
-  )
+  results_raw = .run_workers(tiles_list, vpd_files, dates, periods_days,
+                              terra_temp, tiles_root, cores)
 
-  res       = .normalize_results(results_raw)
-  ok_vec    = vapply(res, function(x) isTRUE(x$ok), TRUE)
-  wrote_ct  = vapply(res, function(x) as.integer(x$wrote), 0L)
+  res      = .normalize_results(results_raw)
+  ok_vec   = vapply(res, function(x) isTRUE(x$ok), TRUE)
+  wrote_ct = vapply(res, function(x) as.integer(x$wrote), 0L)
   all_paths = unlist(lapply(res, `[[`, "paths"), use.names = FALSE)
 
   errs = unique(vapply(res[!ok_vec], function(x) as.character(x$msg)[1], ""))
@@ -702,7 +677,7 @@ run_spei_metrics = function() {
   mosaic_any = mosaic_all_periods_and_cleanup(period_dir_names, last_date_iso)
   if (!mosaic_any) message("No mosaics written (no usable tiles found).")
 
-  message(Sys.time(), " — SPEI metrics run complete.")
+  message(Sys.time(), " — VPD metrics run complete.")
 }
 
-if (sys.nframe() == 0) run_spei_metrics()
+if (sys.nframe() == 0) run_vpd_metrics()

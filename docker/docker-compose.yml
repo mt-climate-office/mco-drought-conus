@@ -1,0 +1,22 @@
+services:
+  mco-drought:
+    user: "rstudio"
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mco-drought-pipeline:latest
+    container_name: mco-drought
+    environment:
+      TZ: America/Denver
+      CORES: "8"
+      KEEP_TILES: "0"
+      CONUS_MASK: "1"
+      TILE_DX: "2"
+      TILE_DY: "2"
+    mem_limit: 30g
+    mem_reservation: 8g
+    volumes:
+      - ${HOME}/mco-drought-conus:/home/rstudio/mco-drought-conus:rw
+      - ${HOME}/mco-drought-conus-data:/home/rstudio/mco-drought-conus-data:rw
+    restart: "no"
