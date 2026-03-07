@@ -13,7 +13,6 @@ export TILE_DY="${TILE_DY:-2}"
 
 # GridMET refresh controls (no merge)
 export GRIDMET_REFRESH_YEARS="${GRIDMET_REFRESH_YEARS:-2}"
-export GRIDMET_OVERWRITE_LAST="${GRIDMET_OVERWRITE_LAST:-1}"   # force delete+redownload
 export START_YEAR="${START_YEAR:-1991}"
 
 # Make temp dirs writable and keep terra/gdal scratch off /tmp if you want
@@ -35,7 +34,8 @@ mkdir -p \
 chown -R rstudio:rstudio "$DATA_DIR" 2>/dev/null || true
 chmod -R a+rwx "$DATA_DIR" 2>/dev/null || true
 
-echo "=== $(date) — Refreshing last ${GRIDMET_REFRESH_YEARS} years of GridMET raws (pr, pet, vpd, tmmx — NO MERGE) ==="
+echo "=== $(date) — Phase 1: filling any missing historical GridMET years (START_YEAR=${START_YEAR}) ==="
+echo "=== $(date) — Phase 2: force-refreshing last ${GRIDMET_REFRESH_YEARS} years for all vars ==="
 Rscript - <<'RS'
 suppressPackageStartupMessages({
   library(fs)
@@ -46,41 +46,23 @@ terra::terraOptions(tempdir = Sys.getenv("TERRA_TEMP_DIR", unset = tempdir()))
 
 source(file.path(Sys.getenv("PROJECT_DIR"), "R", "1_gridmet-cache.R"))
 
-.ensure_recent_raw <- function(var) {
-  n_refresh_years = as.integer(Sys.getenv("GRIDMET_REFRESH_YEARS", "2"))
-  overwrite_last  = identical(Sys.getenv("GRIDMET_OVERWRITE_LAST", "0"), "1")
+start_year = as.integer(Sys.getenv("START_YEAR", "1991"))
 
-  cy  = as.integer(format(Sys.Date(), "%Y"))
-  y0  = cy - n_refresh_years + 1L
-  yrs = seq.int(y0, cy)
-
-  message("GridMET ", var, ": refreshing years: ", paste(yrs, collapse = ", "),
-          " (overwrite_last=", overwrite_last, ")")
-
-  dirs = .gridmet_dirs(var)
-  fs::dir_create(dirs$raw_dir)
-
-  for (yy in yrs) {
-    f = .gridmet_year_nc(var, yy)
-    if (fs::file_exists(f) && overwrite_last) {
-      message("Deleting raw: ", fs::path_expand(f))
-      fs::file_delete(f)
-    }
-    gridmet_download_year(var, yy, overwrite = overwrite_last)
-
-    if (!fs::file_exists(f) || fs::file_info(f)$size <= 0) {
-      stop("Missing/empty raw file after download: ", fs::path_expand(f))
-    }
-  }
-
-  invisible(TRUE)
+# Phase 1: download any missing years across the full historical record.
+# gridmet_download_range uses overwrite=FALSE, so existing files are skipped.
+message("=== Phase 1: filling historical gaps (", start_year, "-present, skip existing) ===")
+for (var in c("pr", "pet", "vpd", "tmmx")) {
+  message("  ", var, " ...")
+  gridmet_download_range(var, start_year = start_year)
 }
+message("Phase 1 complete.")
 
-.ensure_recent_raw("pr")
-.ensure_recent_raw("pet")
-.ensure_recent_raw("vpd")
-.ensure_recent_raw("tmmx")
-message("Recent raw GridMET refresh complete (no merged NetCDF created).")
+# Phase 2: always delete and re-download the last GRIDMET_REFRESH_YEARS years
+# for every variable, so preliminary/updated data is always replaced.
+message("=== Phase 2: force-refreshing last ", Sys.getenv("GRIDMET_REFRESH_YEARS", "2"),
+        " year(s) for all vars ===")
+gridmet_refresh_pr_pet_vpd_tmmx_raw()
+message("Phase 2 complete. GridMET cache ready.")
 RS
 
 echo "=== $(date) — Running precipitation metrics ==="

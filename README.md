@@ -96,10 +96,7 @@ cd mco-drought-conus/docker
 # 2. Build the image (only needed once, or after Dockerfile changes)
 docker compose build
 
-# 3. First run — download full historical record (see note below)
-docker compose run -e GRIDMET_REFRESH_YEARS=35 mco-drought
-
-# 4. Subsequent runs — refresh only the most recent years
+# 3. Run — same command every time, including first run
 docker compose up
 ```
 
@@ -120,38 +117,22 @@ Adjust the `volumes` block in `docker-compose.yml` if your data directory lives 
 **The data directory is created automatically** — if `~/mco-drought-conus-data` does not exist,
 `run_once.sh` creates it (and all subdirectories) before downloading anything.
 
-**Historical data must be downloaded on first run.** The default `GRIDMET_REFRESH_YEARS=2`
-is designed for routine operational updates and only downloads the two most-recent years.
-All metrics (SPI, SPEI, EDDI, etc.) require a minimum of 10 years of data to compute a
-climatological distribution; with fewer years available every pixel returns `NA` and no
-output files are written — the pipeline completes without errors but produces nothing useful.
+**`docker compose up` is the same command every time**, including the very first run. The
+GridMET download step runs in two phases on every invocation:
 
-On a cold start, set `GRIDMET_REFRESH_YEARS` to cover the full period from 1991 to present
-(~35 years as of 2026):
+1. **Historical fill** — downloads any year files missing from disk (skips existing files).
+   On a cold start this pulls the full record from `START_YEAR` (default 1991) to present:
+   4 variables × ~35 annual NetCDF files (~140 files, each 50–200 MB). Expect several hours
+   on a first run; on subsequent runs this phase completes almost instantly because the files
+   already exist.
 
-```bash
-docker compose run -e GRIDMET_REFRESH_YEARS=35 mco-drought
-```
+2. **Recent refresh** — always deletes and re-downloads the last `GRIDMET_REFRESH_YEARS`
+   years (default: 2) for every variable, regardless of whether those files are already
+   present. This ensures preliminary/updated GridMET data is replaced on every run.
 
-This downloads **4 variables × ~35 annual NetCDF files** (~140 files, each 50–200 MB) from
-the Northwest Knowledge Network servers. Expect several hours on a first run. After the
-historical cache is populated, routine runs with the default `GRIDMET_REFRESH_YEARS=2` will
-only re-download and reprocess the most-recent two years.
-
-**Partial cold start (some variables already downloaded):** If `pr` and `pet` have a full
-historical cache but `vpd` and `tmmx` do not, scripts 2–4 (precip, SPEI, EDDI) will
-produce correct output while scripts 5–6 (VPD, tmax) will silently produce nothing — no
-errors, just no files written. To fill in only the missing variables without re-downloading
-what already exists, set `GRIDMET_OVERWRITE_LAST=0`:
-
-```bash
-docker compose run -e GRIDMET_REFRESH_YEARS=35 -e GRIDMET_OVERWRITE_LAST=0 mco-drought
-```
-
-With `GRIDMET_OVERWRITE_LAST=0`, the refresh step skips any year file that is already
-present on disk and only downloads missing files. The default (`GRIDMET_OVERWRITE_LAST=1`)
-deletes and re-downloads the target years for all four variables regardless of whether they
-exist.
+Because the two phases are separate, a partial cache (e.g. `pr` and `pet` already downloaded
+but `vpd` and `tmmx` not yet) is handled correctly — phase 1 fills in only what is missing,
+and phase 2 refreshes the recent years for all variables.
 
 > **Note on `DATA_DIR`:** `1_gridmet-cache.R` resolves raw download paths relative to
 > `~/mco-drought-conus-data` (hardcoded), not from the `DATA_DIR` environment variable.
@@ -173,7 +154,8 @@ Override any of these in `docker-compose.yml` under `environment:`, or pass them
 | `CONUS_MASK` | `1` | Apply CONUS land mask to outputs (`0` = no mask) |
 | `TILE_DX` | `2` | Tile width in degrees |
 | `TILE_DY` | `2` | Tile height in degrees |
-| `GRIDMET_REFRESH_YEARS` | `2` | Number of most-recent years to re-download on each run |
+| `GRIDMET_REFRESH_YEARS` | `2` | Number of most-recent years to force-delete and re-download on every run |
+| `START_YEAR` | `1991` | Earliest year to include in the historical fill (phase 1) |
 | `DATA_DIR` | `~/mco-drought-conus-data` | Root directory for raw, interim, and derived data |
 
 ---
