@@ -138,6 +138,21 @@ the Northwest Knowledge Network servers. Expect several hours on a first run. Af
 historical cache is populated, routine runs with the default `GRIDMET_REFRESH_YEARS=2` will
 only re-download and reprocess the most-recent two years.
 
+**Partial cold start (some variables already downloaded):** If `pr` and `pet` have a full
+historical cache but `vpd` and `tmmx` do not, scripts 2–4 (precip, SPEI, EDDI) will
+produce correct output while scripts 5–6 (VPD, tmax) will silently produce nothing — no
+errors, just no files written. To fill in only the missing variables without re-downloading
+what already exists, set `GRIDMET_OVERWRITE_LAST=0`:
+
+```bash
+docker compose run -e GRIDMET_REFRESH_YEARS=35 -e GRIDMET_OVERWRITE_LAST=0 mco-drought
+```
+
+With `GRIDMET_OVERWRITE_LAST=0`, the refresh step skips any year file that is already
+present on disk and only downloads missing files. The default (`GRIDMET_OVERWRITE_LAST=1`)
+deletes and re-downloads the target years for all four variables regardless of whether they
+exist.
+
 > **Note on `DATA_DIR`:** `1_gridmet-cache.R` resolves raw download paths relative to
 > `~/mco-drought-conus-data` (hardcoded), not from the `DATA_DIR` environment variable.
 > Inside Docker this matches the default volume mount so there is no issue. If you customize
