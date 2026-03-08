@@ -175,18 +175,46 @@ build_tiles_from_extent = function(dx = 2, dy = 2, r_for_align, edge_buf_deg = N
   tiles
 }
 
-# 30-year calendar reference
-last_30y_indices = function(dates) {
+# Climatological reference period helpers
+parse_clim_periods = function(env_val = "rolling:30") {
+  specs = strsplit(trimws(env_val), ",")[[1]]
+  lapply(specs, function(s) {
+    parts = strsplit(trimws(s), ":")[[1]]
+    mode  = parts[1]
+    switch(mode,
+      rolling = list(mode="rolling", years=as.integer(parts[2]),
+                     start=NA_integer_, end=NA_integer_,
+                     slug=paste0("rolling_", parts[2])),
+      fixed   = list(mode="fixed",   years=NA_integer_,
+                     start=as.integer(parts[2]), end=as.integer(parts[3]),
+                     slug=paste0("fixed_", parts[2], "_", parts[3])),
+      full    = list(mode="full",    years=NA_integer_,
+                     start=NA_integer_, end=NA_integer_, slug="full"),
+      stop("Unknown CLIM_PERIODS mode: ", mode)
+    )
+  })
+}
+
+ref_period_indices = function(dates, clim_spec) {
   d_last  = max(dates, na.rm = TRUE)
   md_last = format(d_last, "%m-%d")
   idx     = which(format(dates, "%m-%d") == md_last)
   yrs     = as.integer(format(dates[idx], "%Y"))
-  keep    = which(yrs >= (as.integer(format(d_last, "%Y")) - 29))
+  keep = switch(clim_spec$mode,
+    rolling = which(yrs >= (as.integer(format(d_last, "%Y")) - clim_spec$years + 1L)),
+    fixed   = {
+      if (is.na(clim_spec$start) || is.na(clim_spec$end))
+        stop("fixed mode requires start and end years.")
+      which(yrs >= clim_spec$start & yrs <= clim_spec$end)
+    },
+    full    = seq_along(yrs),
+    stop("Unknown CLIM_PERIODS mode: ", clim_spec$mode)
+  )
   idx[keep]
 }
 
-build_slice_groups = function(n_days, dates) {
-  anchors = last_30y_indices(dates)
+build_slice_groups = function(n_days, dates, clim_spec) {
+  anchors = ref_period_indices(dates, clim_spec)
   purrr::compact(purrr::map(anchors, function(end_i) {
     start_i = end_i - (n_days - 1)
     if (start_i < 1) return(NULL)
@@ -309,12 +337,12 @@ MIN_YEARS = 10L
   fn
 }
 
-.eddi_from_nonparam = function(x_vec) {
+.eddi_from_nonparam = function(x_vec, clim_len) {
   x = as.numeric(x_vec)
   x = x[is.finite(x)]
   if (length(x) < 3 || stats::sd(x) == 0) return(NA_real_)
   fn  = .require_fun("nonparam_fit_eddi")
-  val = try(fn(x, climatology_length = 30), silent = TRUE)
+  val = try(fn(x, climatology_length = clim_len), silent = TRUE)
   if (inherits(val, "try-error") || !is.finite(val)) return(NA_real_)
   as.numeric(val)
 }
@@ -324,10 +352,11 @@ MIN_YEARS = 10L
   rowSums(sub, na.rm = FALSE)
 }
 
-compute_eddi_from_matrix = function(vals, dates, base_r, periods_days = NULL) {
+compute_eddi_from_matrix = function(vals, dates, base_r, periods_days = NULL, clim_spec) {
   period_info       = if (is.null(periods_days)) eddi_timescales_days(dates)
                       else list(lengths = periods_days, names = paste0(periods_days, "d"))
-  groups_per_period = purrr::map(period_info$lengths, build_slice_groups, dates = dates)
+  groups_per_period = purrr::map(period_info$lengths, build_slice_groups,
+                                 dates = dates, clim_spec = clim_spec)
 
   compute_one_period = function(p_i) {
     groups = groups_per_period[[p_i]]
@@ -339,6 +368,7 @@ compute_eddi_from_matrix = function(vals, dates, base_r, periods_days = NULL) {
       return(setNames(list(z), nm_out))
     }
 
+    clim_len = length(groups)
     integ = matrix(NA_real_, nrow = nrow(vals), ncol = length(groups))
     for (g in seq_along(groups)) integ[, g] = .safe_window_sum(vals, groups[[g]])
 
@@ -346,7 +376,7 @@ compute_eddi_from_matrix = function(vals, dates, base_r, periods_days = NULL) {
     out_eddi  = rep(NA_real_, nrow(integ))
 
     if (length(ok_rows) > 0) {
-      out_eddi[ok_rows] = vapply(ok_rows, function(i) .eddi_from_nonparam(integ[i, ]), numeric(1))
+      out_eddi[ok_rows] = vapply(ok_rows, function(i) .eddi_from_nonparam(integ[i, ], clim_len), numeric(1))
     }
 
     r_eddi = base_r
@@ -394,6 +424,7 @@ compute_eddi_from_matrix = function(vals, dates, base_r, periods_days = NULL) {
 
 write_eddi_for_tile = function(tile_sf, pet_files, dates,
                                periods_days   = NULL,
+                               clim_spec,
                                out_dir        = tiles_root,
                                terra_temp_dir = terra_temp) {
   out_dir = .abs_path(out_dir)
@@ -418,7 +449,8 @@ write_eddi_for_tile = function(tile_sf, pet_files, dates,
     vals         = io$vals,
     dates        = dates,
     base_r       = io$base_r,
-    periods_days = periods_days
+    periods_days = periods_days,
+    clim_spec    = clim_spec
   )
 
   if (is.list(rs) && length(rs) == 1 && identical(names(rs), ".msg")) {
@@ -430,12 +462,12 @@ write_eddi_for_tile = function(tile_sf, pet_files, dates,
                 tile_id = tile_sf$tile_id, msg = "no output"))
   }
 
-  # Step 3: write per-period GeoTIFFs
+  # Step 3: write per-period GeoTIFFs (tile subdir tagged with clim slug)
   wrote = 0L
   paths = character(0)
 
   for (nm in names(rs)) {
-    period_dir = fs::path(out_dir, nm)
+    period_dir = fs::path(out_dir, paste0(nm, "_", clim_spec$slug))
     .dir_create_base(period_dir)
     out = fs::path(period_dir, paste0("tile_", tile_sf$tile_id, ".tif"))
     .write_checked(rs[[nm]], out, tile_id = tile_sf$tile_id)
@@ -516,7 +548,7 @@ mosaic_all_periods_and_cleanup = function(period_dir_names, last_date_iso) {
 
 # ---- Parallel backend --------------------------------------------------------
 .run_workers = function(tiles_list, pet_files, dates, periods_days,
-                        terra_temp_dir, out_dir, cores) {
+                        terra_temp_dir, out_dir, cores, clim_spec) {
 
   message("Parallel backend: mclapply (", cores, " workers) — reading from files per worker")
 
@@ -528,6 +560,7 @@ mosaic_all_periods_and_cleanup = function(period_dir_names, last_date_iso) {
         pet_files      = pet_files,
         dates          = dates,
         periods_days   = periods_days,
+        clim_spec      = clim_spec,
         out_dir        = out_dir,
         terra_temp_dir = terra_temp_dir
       ),
@@ -538,12 +571,9 @@ mosaic_all_periods_and_cleanup = function(period_dir_names, last_date_iso) {
     )
   }
 
-  if (cores == 1L) {
-    lapply(seq_along(tiles_list), worker_fn)
-  } else {
-    parallel::mclapply(seq_along(tiles_list), worker_fn,
-                       mc.cores = cores, mc.preschedule = FALSE)
-  }
+  pbmcapply::pbmclapply(seq_along(tiles_list), worker_fn,
+                        mc.cores = cores, mc.preschedule = FALSE,
+                        ignore.interactive = TRUE)
 }
 
 # ---- Result normalizer -------------------------------------------------------
@@ -566,6 +596,7 @@ mosaic_all_periods_and_cleanup = function(period_dir_names, last_date_iso) {
 # ---- Runner ------------------------------------------------------------------
 run_eddi_metrics = function() {
   message(Sys.time(), " — Starting EDDI metrics run")
+  t_start = proc.time()
 
   Sys.setenv(
     OMP_NUM_THREADS      = "1",
@@ -609,52 +640,62 @@ run_eddi_metrics = function() {
 
   tiles_list = lapply(seq_len(n_tiles), function(i) tiles[i, ])
 
-  results_raw = .run_workers(
-    tiles_list     = tiles_list,
-    pet_files      = pet_files,
-    dates          = dates,
-    periods_days   = periods_days,
-    terra_temp_dir = terra_temp,
-    out_dir        = tiles_root,
-    cores          = cores
-  )
+  clim_periods = parse_clim_periods(Sys.getenv("CLIM_PERIODS", unset = "rolling:30"))
+  message("Reference periods: ", paste(sapply(clim_periods, `[[`, "slug"), collapse = ", "))
 
-  res       = .normalize_results(results_raw)
-  ok_vec    = vapply(res, function(x) isTRUE(x$ok), TRUE)
-  wrote_ct  = vapply(res, function(x) as.integer(x$wrote), 0L)
-  all_paths = unlist(lapply(res, `[[`, "paths"), use.names = FALSE)
+  for (clim_spec in clim_periods) {
+    message("--- Running period: ", clim_spec$slug, " ---")
 
-  errs = unique(vapply(res[!ok_vec], function(x) as.character(x$msg)[1], ""))
-  errs = errs[nzchar(errs)]
+    results_raw = .run_workers(
+      tiles_list     = tiles_list,
+      pet_files      = pet_files,
+      dates          = dates,
+      periods_days   = periods_days,
+      terra_temp_dir = terra_temp,
+      out_dir        = tiles_root,
+      cores          = cores,
+      clim_spec      = clim_spec
+    )
 
-  message(sprintf("Tiles OK: %d/%d; total files written: %d",
-                  sum(ok_vec), n_tiles, sum(wrote_ct)))
+    res       = .normalize_results(results_raw)
+    ok_vec    = vapply(res, function(x) isTRUE(x$ok), TRUE)
+    wrote_ct  = vapply(res, function(x) as.integer(x$wrote), 0L)
+    all_paths = unlist(lapply(res, `[[`, "paths"), use.names = FALSE)
 
-  skipped_msgs = unique(vapply(res[ok_vec], function(x) as.character(x$msg)[1], ""))
-  skipped_msgs = skipped_msgs[nzchar(skipped_msgs)]
-  if (length(skipped_msgs) > 0) {
-    message("Skip reasons (ok=TRUE, wrote=0):")
-    for (m in utils::head(skipped_msgs, 10)) message("  • ", m)
+    errs = unique(vapply(res[!ok_vec], function(x) as.character(x$msg)[1], ""))
+    errs = errs[nzchar(errs)]
+
+    message(sprintf("Tiles OK: %d/%d; total files written: %d",
+                    sum(ok_vec), n_tiles, sum(wrote_ct)))
+
+    skipped_msgs = unique(vapply(res[ok_vec], function(x) as.character(x$msg)[1], ""))
+    skipped_msgs = skipped_msgs[nzchar(skipped_msgs)]
+    if (length(skipped_msgs) > 0) {
+      message("Skip reasons (ok=TRUE, wrote=0):")
+      for (m in utils::head(skipped_msgs, 10)) message("  • ", m)
+    }
+
+    if (length(errs) > 0) {
+      message("Errors:")
+      for (e in utils::head(errs, 12)) message("  • ", e)
+    }
+
+    .dir_create_base(conus_root)
+
+    period_dir_names = unique(basename(fs::path_dir(all_paths)))
+    if (!length(period_dir_names) && fs::dir_exists(tiles_root)) {
+      all_dirs = basename(fs::dir_ls(tiles_root, type = "directory"))
+      period_dir_names = all_dirs[grepl(paste0("_", clim_spec$slug, "$"), all_dirs)]
+    }
+
+    message("Mosaicking ", length(period_dir_names), " period(s) to ", conus_root)
+
+    mosaic_any = mosaic_all_periods_and_cleanup(period_dir_names, last_date_iso)
+    if (!mosaic_any) message("No mosaics written (no usable tiles found).")
   }
 
-  if (length(errs) > 0) {
-    message("Errors:")
-    for (e in utils::head(errs, 12)) message("  • ", e)
-  }
-
-  .dir_create_base(conus_root)
-
-  period_dir_names = unique(basename(fs::path_dir(all_paths)))
-  if (!length(period_dir_names) && fs::dir_exists(tiles_root)) {
-    period_dir_names = basename(fs::dir_ls(tiles_root, type = "directory"))
-  }
-
-  message("Mosaicking ", length(period_dir_names), " period(s) to ", conus_root)
-
-  mosaic_any = mosaic_all_periods_and_cleanup(period_dir_names, last_date_iso)
-  if (!mosaic_any) message("No mosaics written (no usable tiles found).")
-
-  message(Sys.time(), " — EDDI metrics run complete.")
+  elapsed_min = round((proc.time() - t_start)[["elapsed"]] / 60, 1)
+  message(Sys.time(), " — EDDI metrics run complete. Elapsed: ", elapsed_min, " min.")
 }
 
 if (sys.nframe() == 0) run_eddi_metrics()

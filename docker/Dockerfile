@@ -7,7 +7,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 ENV TZ=America/Denver
 ENV OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 
-RUN R -q -e 'install.packages(c("fs","purrr","readr","tibble","rnaturalearth","gdalUtilities","lmomco","raster","ncdf4","pak"), repos="https://cloud.r-project.org")'
+RUN R -q -e 'install.packages(c("fs","purrr","readr","tibble","rnaturalearth","gdalUtilities","lmomco","raster","ncdf4","pak","pbmcapply"), repos="https://cloud.r-project.org")'
 
 RUN R -q -e 'pak::pkg_install("ropensci/rnaturalearthhires")'
 

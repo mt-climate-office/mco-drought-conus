@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+PIPELINE_START=$SECONDS
 
 export HOME=/home/rstudio
 export PROJECT_DIR="${PROJECT_DIR:-$HOME/mco-drought-conus}"
@@ -30,9 +31,13 @@ mkdir -p \
   "$R_TEMP_DIR" \
   "$TERRA_TEMP_DIR"
 
-# Try to make the mount writable for the running user (best-effort).
+# Fix permissions on existing dirs before trying to create new subdirs.
 chown -R rstudio:rstudio "$DATA_DIR" 2>/dev/null || true
 chmod -R a+rwx "$DATA_DIR" 2>/dev/null || true
+
+for var in pr pet vpd tmmx; do
+  mkdir -p "$DATA_DIR/interim/gridmet/$var/raw"
+done
 
 echo "=== $(date) — Phase 1: filling any missing historical GridMET years (START_YEAR=${START_YEAR}) ==="
 echo "=== $(date) — Phase 2: force-refreshing last ${GRIDMET_REFRESH_YEARS} years for all vars ==="
@@ -105,3 +110,6 @@ if [ "${KEEP_TILES}" = "0" ]; then
 else
   echo "=== $(date) — KEEP_TILES=1: intermediate tile folders retained ==="
 fi
+
+PIPELINE_ELAPSED=$(( SECONDS - PIPELINE_START ))
+echo "=== $(date) — Total pipeline wall time: $(( PIPELINE_ELAPSED / 60 ))m $(( PIPELINE_ELAPSED % 60 ))s ==="

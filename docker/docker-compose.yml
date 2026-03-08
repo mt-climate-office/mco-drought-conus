@@ -14,6 +14,10 @@ services:
       CONUS_MASK: "1"
       TILE_DX: "2"
       TILE_DY: "2"
+      CLIM_PERIODS: "rolling:30,full"
+      # Examples:
+      # CLIM_PERIODS: "rolling:30,fixed:1991:2020"
+      # CLIM_PERIODS: "fixed:1991:2020,full"
     mem_limit: 30g
     mem_reservation: 8g
     volumes:

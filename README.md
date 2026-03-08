@@ -157,6 +157,40 @@ Override any of these in `docker-compose.yml` under `environment:`, or pass them
 | `GRIDMET_REFRESH_YEARS` | `2` | Number of most-recent years to force-delete and re-download on every run |
 | `START_YEAR` | `1991` | Earliest year to include in the historical fill (phase 1) |
 | `DATA_DIR` | `~/mco-drought-conus-data` | Root directory for raw, interim, and derived data |
+| `CLIM_PERIODS` | `rolling:30` | Comma-separated climatological reference period specs (see below) |
+
+### `CLIM_PERIODS` syntax
+
+Each spec produces a slug appended to all output filenames:
+
+| Spec | Description | Output slug |
+|------|-------------|-------------|
+| `rolling:N` | Last N years from current date | `rolling_N` |
+| `fixed:YYYY:YYYY` | Fixed year range (inclusive) | `fixed_YYYY_YYYY` |
+| `full` | All years from `START_YEAR` to present | `full` |
+
+Multiple specs are comma-separated. Each produces its own set of output files:
+
+```yaml
+# Single period (default — matches prior behavior)
+CLIM_PERIODS: "rolling:30"
+
+# Two periods in one run
+CLIM_PERIODS: "rolling:30,fixed:1991:2020"
+
+# Fixed baseline only
+CLIM_PERIODS: "fixed:1991:2020"
+
+# Full record
+CLIM_PERIODS: "full"
+```
+
+Output files in `$DATA_DIR/derived/conus_drought/` are slug-tagged, e.g.:
+```
+spi_30d_rolling_30.tif
+spi_30d_fixed_1991_2020.tif
+spei_15d_rolling_30.tif
+```
 
 ---
 
