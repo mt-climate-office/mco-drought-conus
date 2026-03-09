@@ -111,5 +111,8 @@ else
   echo "=== $(date) — KEEP_TILES=1: intermediate tile folders retained ==="
 fi
 
+echo "=== $(date) — Converting COGs to web-optimized COGs ==="
+bash "$PROJECT_DIR/docker/make_web_cogs.sh"
+
 PIPELINE_ELAPSED=$(( SECONDS - PIPELINE_START ))
 echo "=== $(date) — Total pipeline wall time: $(( PIPELINE_ELAPSED / 60 ))m $(( PIPELINE_ELAPSED % 60 ))s ==="

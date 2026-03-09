@@ -1,0 +1,1454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCO Drought Dashboard</title>
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+
+  <!-- georaster + georaster-layer-for-leaflet -->
+  <script src="https://unpkg.com/georaster@1.6.0/dist/georaster.browser.bundle.min.js"></script>
+  <script src="https://unpkg.com/georaster-layer-for-leaflet@3.10.0/dist/georaster-layer-for-leaflet.min.js"></script>
+
+  <!-- chroma.js -->
+  <script src="https://unpkg.com/chroma-js@2.4.2/chroma.min.js"></script>
+
+
+
+  <style>
+    /* ── CSS custom properties ─────────────────────────────────── */
+    :root {
+      --accent:     #1a6faf;
+      --accent-dk:  #114f80;
+      --sidebar-w:  280px;
+      --sidebar-bg: #1e2530;
+      --sidebar-fg: #e8ecf0;
+      --pill-active:#1a6faf;
+      --pill-bg:    #2c3545;
+      --btn-active: #1a6faf;
+      --btn-bg:     #2c3545;
+      --shadow:     0 2px 12px rgba(0,0,0,0.3);
+      --navbar-h:   48px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+    }
+
+    /* ── Navbar ─────────────────────────────────────────────────── */
+    #navbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: var(--navbar-h);
+      background: var(--sidebar-bg);
+      color: var(--sidebar-fg);
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      z-index: 1100;
+      box-shadow: var(--shadow);
+      gap: 10px;
+    }
+
+    #navbar .brand {
+      font-size: 2rem;
+      font-weight: 1000;
+      letter-spacing: 0.02em;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #navbar .brand span {
+      color: var(--accent);
+    }
+
+    #hamburger {
+      background: none;
+      border: none;
+      color: var(--sidebar-fg);
+      cursor: pointer;
+      padding: 4px 6px;
+      border-radius: 4px;
+      font-size: 1.2rem;
+      line-height: 1;
+      display: none;
+    }
+
+    #hamburger:hover { background: var(--pill-bg); }
+
+    /* ── Screenshot button ──────────────────────────────────────── */
+    #screenshot-btn {
+      background: none;
+      border: 1px solid #3a4558;
+      border-radius: 6px;
+      color: var(--sidebar-fg);
+      cursor: pointer;
+      padding: 5px 10px;
+      font-size: 0.78rem;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    #screenshot-btn:hover { background: var(--pill-bg); border-color: var(--accent); }
+
+    #screenshot-btn:disabled {
+      opacity: 0.5;
+      cursor: wait;
+    }
+
+    #screenshot-btn svg { flex-shrink: 0; }
+
+    /* ── App shell ──────────────────────────────────────────────── */
+    #shell {
+      position: fixed;
+      top: var(--navbar-h);
+      bottom: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+    }
+
+    /* ── Sidebar ────────────────────────────────────────────────── */
+    #sidebar {
+      width: var(--sidebar-w);
+      min-width: var(--sidebar-w);
+      background: var(--sidebar-bg);
+      color: var(--sidebar-fg);
+      overflow-y: auto;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      z-index: 1050;
+      transition: width 0.25s ease, min-width 0.25s ease;
+      box-shadow: var(--shadow);
+    }
+
+    #sidebar.collapsed {
+      width: 0;
+      min-width: 0;
+    }
+
+    #sidebar.collapsed .sidebar-inner {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .sidebar-inner {
+      padding: 12px 12px 20px;
+      transition: opacity 0.2s ease;
+      min-width: var(--sidebar-w);
+    }
+
+    /* ── Section headings ───────────────────────────────────────── */
+    .section-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6b7a90;
+      padding: 14px 4px 6px;
+      border-top: 1px solid #2c3545;
+      margin-top: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .section-label:first-child { border-top: none; margin-top: 0; padding-top: 4px; }
+
+    .section-label:hover { color: #8a99b0; }
+
+    .section-label .caret {
+      font-size: 0.55rem;
+      color: #4a5a70;
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+    }
+
+    .section-label.sec-collapsed .caret { transform: rotate(-90deg); }
+
+    /* ── Section bodies ──────────────────────────────────────────── */
+    .section-body {
+      overflow: hidden;
+      max-height: 600px;
+      opacity: 1;
+      transition: max-height 0.25s ease, opacity 0.18s ease;
+      padding-bottom: 2px;
+    }
+
+    .section-body.sec-collapsed {
+      max-height: 0;
+      opacity: 0;
+    }
+
+    /* ── Range controls ──────────────────────────────────────────── */
+    #range-section {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #2c3545;
+    }
+
+    .subsec-label {
+      font-size: 0.6rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #4a5a70;
+      margin-bottom: 6px;
+    }
+
+    #range-row {
+      display: flex;
+      gap: 5px;
+      align-items: flex-end;
+    }
+
+    .range-field {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .range-lbl {
+      font-size: 0.62rem;
+      color: #6b7a90;
+      margin-bottom: 2px;
+    }
+
+    .range-input {
+      background: var(--pill-bg);
+      color: var(--sidebar-fg);
+      border: 1px solid #3a4558;
+      border-radius: 4px;
+      padding: 5px 6px;
+      font-size: 0.78rem;
+      width: 100%;
+      -moz-appearance: textfield;
+    }
+
+    .range-input::-webkit-inner-spin-button,
+    .range-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+    .range-input:focus { outline: none; border-color: var(--accent); }
+
+    #range-reset {
+      background: var(--btn-bg);
+      color: #aab4c0;
+      border: none;
+      border-radius: 5px;
+      padding: 5px 8px;
+      font-size: 0.7rem;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      align-self: flex-end;
+    }
+
+    #range-reset:hover { background: #3a4a60; color: var(--sidebar-fg); }
+
+    /* ── Variable select ────────────────────────────────────────── */
+    #var-select {
+      width: 100%;
+      background: var(--pill-bg);
+      color: var(--sidebar-fg);
+      border: 1px solid #3a4558;
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236b7a90'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+    }
+
+    #var-select optgroup { color: #6b7a90; font-size: 0.75rem; }
+    #var-select option   { color: var(--sidebar-fg); background: #2c3545; }
+
+    /* ── Timescale buttons ──────────────────────────────────────── */
+    #timescale-strip {
+      font-size: 2rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .ts-btn {
+      background: var(--btn-bg);
+      color: #aab4c0;
+      border: none;
+      border-radius: 5px;
+      padding: 4px 7px;
+      font-size: 0.72rem;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .ts-btn:hover { background: #3a4a60; color: var(--sidebar-fg); }
+    .ts-btn.active { background: var(--btn-active); color: #fff; font-weight: 600; }
+
+    /* ── Period toggle pills ─────────────────────────────────────── */
+    #period-strip {
+      display: flex;
+      gap: 6px;
+    }
+
+    .period-btn {
+      flex: 1;
+      background: var(--pill-bg);
+      color: #aab4c0;
+      border: none;
+      border-radius: 16px;
+      padding: 6px 8px;
+      font-size: 0.78rem;
+      cursor: pointer;
+      text-align: center;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .period-btn:hover { background: #3a4a60; color: var(--sidebar-fg); }
+    .period-btn.active { background: var(--pill-active); color: #fff; font-weight: 600; }
+
+    /* ── Opacity slider ─────────────────────────────────────────── */
+    #opacity-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #opacity-val {
+      font-size: 0.78rem;
+      color: #aab4c0;
+      min-width: 30px;
+      text-align: right;
+    }
+
+    #opacity-slider {
+      flex: 1;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    /* ── States checkbox ─────────────────────────────────────────── */
+    #states-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.82rem;
+      color: #aab4c0;
+      cursor: pointer;
+    }
+
+    #states-row input { accent-color: var(--accent); cursor: pointer; }
+
+    /* ── Collapse toggle ─────────────────────────────────────────── */
+    #collapse-btn {
+      position: absolute;
+      top: calc(var(--navbar-h) + 12px);
+      left: var(--sidebar-w);
+      z-index: 1060;
+      background: var(--sidebar-bg);
+      color: var(--sidebar-fg);
+      border: 1px solid #3a4558;
+      border-left: none;
+      border-radius: 0 6px 6px 0;
+      width: 18px;
+      height: 36px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      transition: left 0.25s ease;
+      box-shadow: 2px 0 6px rgba(0,0,0,0.2);
+    }
+
+    #collapse-btn:hover { background: var(--pill-bg); }
+
+    /* ── Map ─────────────────────────────────────────────────────── */
+    #map {
+      flex: 1;
+      height: 100%;
+    }
+
+    /* ── Spinner overlay ─────────────────────────────────────────── */
+    #spinner {
+      display: none;
+      position: fixed;
+      top: var(--navbar-h);
+      left: var(--sidebar-w);
+      right: 0;
+      bottom: 0;
+      z-index: 900;
+      background: rgba(15,20,28,0.45);
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 12px;
+      transition: left 0.25s ease;
+    }
+
+    #spinner.active { display: flex; }
+
+    .spin-ring {
+      width: 48px;
+      height: 48px;
+      border: 4px solid rgba(255,255,255,0.15);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .spin-label {
+      color: #e0e8f0;
+      font-size: 0.85rem;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Legend ──────────────────────────────────────────────────── */
+    .leaflet-legend {
+      background: rgba(20,26,36,0.92);
+      color: #e0e8f0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 0.78rem;
+      line-height: 1.4;
+      box-shadow: var(--shadow);
+      min-width: 160px;
+      max-width: 200px;
+    }
+
+    .leaflet-legend h4 {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 2px;
+    }
+
+    .leaflet-legend .legend-sub {
+      font-size: 0.7rem;
+      color: #8a99b0;
+      margin-bottom: 4px;
+    }
+
+    .legend-date {
+      font-size: 0.68rem;
+      color: #6b7a90;
+      margin-bottom: 8px;
+    }
+
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 2px;
+    }
+
+    .legend-swatch {
+      width: 16px;
+      height: 14px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    .legend-lbl {
+      font-size: 0.72rem;
+      color: #c0cad6;
+      white-space: nowrap;
+    }
+
+    /* ── States checkbox ─────────────────────────────────────────── */
+    #counties-row {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 0.82rem; color: #aab4c0; cursor: pointer; margin-top: 6px;
+    }
+    #counties-row input { accent-color: var(--accent); cursor: pointer; }
+
+    /* ── Variable info ───────────────────────────────────────────── */
+    #var-info-text {
+      font-size: 0.78rem;
+      color: #8a99b0;
+      line-height: 1.55;
+      padding: 2px 4px 4px;
+    }
+
+    /* ── Mobile ──────────────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      #hamburger { display: flex; }
+      #collapse-btn { display: none; }
+
+      #sidebar {
+        position: fixed;
+        top: var(--navbar-h);
+        bottom: 0;
+        left: 0;
+        z-index: 1200;
+        width: var(--sidebar-w);
+        min-width: var(--sidebar-w);
+        transform: translateX(0);
+        transition: transform 0.25s ease;
+      }
+
+      #sidebar.collapsed {
+        transform: translateX(calc(-1 * var(--sidebar-w)));
+        width: var(--sidebar-w);
+        min-width: var(--sidebar-w);
+      }
+
+      #spinner { left: 0; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Navbar ─────────────────────────────────────────────────── -->
+<nav id="navbar">
+  <button id="hamburger" onclick="toggleSidebar()" title="Toggle sidebar">&#9776;</button>
+  <div class="brand"><span>MCO</span> Drought Dashboard</div>
+  <button id="screenshot-btn" onclick="takeScreenshot()" title="Export map as PNG">
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+      <circle cx="12" cy="13" r="4"/>
+    </svg>
+    Export
+  </button>
+</nav>
+
+<!-- ── Sidebar collapse tab ───────────────────────────────────── -->
+<button id="collapse-btn" onclick="toggleSidebar()" title="Toggle sidebar">&#9664;</button>
+
+<!-- ── App shell ──────────────────────────────────────────────── -->
+<div id="shell">
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div class="sidebar-inner">
+
+      <!-- Variable -->
+      <div class="section-label" data-sec="sec-variable">Variable <span class="caret">&#9660;</span></div>
+      <div class="section-body" id="sec-variable">
+        <select id="var-select">
+          <optgroup label="── Drought Indices ──">
+            <option value="spi"   selected>Standardized Precipitation Index (SPI)</option>
+            <option value="spei"          >Standardized Precip-Evapotranspiration Index (SPEI)</option>
+            <option value="eddi"          >Evaporative Demand Drought Index (EDDI)</option>
+            <option value="svpdi"         >Standardized Vapor Pressure Deficit Index (SVPDI)</option>
+          </optgroup>
+          <optgroup label="── Precipitation ──">
+            <option value="precip_pon"   >Precipitation — Percent of Normal</option>
+            <option value="precip_dev"   >Precipitation — Departure (mm)</option>
+            <option value="precip_pctile">Precipitation — Percentile</option>
+            <option value="precip_in"    >Precipitation — Accumulation (in)</option>
+          </optgroup>
+          <optgroup label="── VPD ──">
+            <option value="vpd_pon"   >VPD — Percent of Normal</option>
+            <option value="vpd_dev"   >VPD — Departure</option>
+            <option value="vpd_pctile">VPD — Percentile</option>
+          </optgroup>
+          <optgroup label="── Temperature ──">
+            <option value="tmax_pctile">Maximum Temperature — Percentile</option>
+          </optgroup>
+        </select>
+
+        <!-- Range controls — shown only for dynamic variables -->
+        <div id="range-section" style="display:none">
+          <div class="subsec-label">Color Range</div>
+          <div id="range-row">
+            <div class="range-field">
+              <span class="range-lbl">Min</span>
+              <input type="number" id="range-min" class="range-input" step="any" placeholder="auto">
+            </div>
+            <div class="range-field">
+              <span class="range-lbl">Max</span>
+              <input type="number" id="range-max" class="range-input" step="any" placeholder="auto">
+            </div>
+            <button id="range-reset">Auto</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Timescale -->
+      <div class="section-label" data-sec="sec-timescale">Timescale <span class="caret">&#9660;</span></div>
+      <div class="section-body" id="sec-timescale">
+        <div id="timescale-strip"></div>
+      </div>
+
+      <!-- Reference Period -->
+      <div class="section-label" data-sec="sec-period">Reference Period <span class="caret">&#9660;</span></div>
+      <div class="section-body" id="sec-period">
+        <div id="period-strip">
+          <button class="period-btn active" data-period="rolling_30">Rolling 30yr</button>
+          <button class="period-btn"        data-period="full">Full Period</button>
+        </div>
+      </div>
+
+      <!-- Opacity -->
+      <div class="section-label" data-sec="sec-opacity">Layer Opacity <span class="caret">&#9660;</span></div>
+      <div class="section-body" id="sec-opacity">
+        <div id="opacity-row">
+          <input id="opacity-slider" type="range" min="0" max="1" step="0.05" value="0.75">
+          <span id="opacity-val">0.75</span>
+        </div>
+      </div>
+
+      <!-- Variable Info -->
+      <div class="section-label" data-sec="sec-info">About <span class="caret">&#9660;</span></div>
+      <div class="section-body" id="sec-info">
+        <div id="var-info-text"></div>
+      </div>
+
+      <!-- Overlays -->
+      <div class="section-label" data-sec="sec-overlays">Overlays <span class="caret">&#9660;</span></div>
+      <div class="section-body" id="sec-overlays">
+        <label id="states-row">
+          <input type="checkbox" id="states-chk" checked>
+          State boundaries
+        </label>
+        <label id="counties-row">
+          <input type="checkbox" id="counties-chk">
+          County boundaries
+        </label>
+      </div>
+
+    </div><!-- .sidebar-inner -->
+  </div><!-- #sidebar -->
+
+  <!-- Map -->
+  <div id="map"></div>
+
+</div><!-- #shell -->
+
+<!-- Spinner -->
+<div id="spinner"><div class="spin-ring"></div><div class="spin-label">Loading raster…</div></div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════
+   CONFIG
+   ════════════════════════════════════════════════════════════════ */
+const BASE_URL = "https://data.climate.umt.edu/share/conus_drought_web";
+// Change to S3/GCS bucket URL when migrated
+
+const TIMESCALES = ["15d","30d","45d","60d","90d","120d","180d","365d","730d","wy","ytd"];
+const DEFAULT_TS = "30d";
+
+/* ── Break tables ────────────────────────────────────────────── */
+const USDM_BREAKS       = [-999, -2.0, -1.6, -1.3, -0.8, -0.5,  0.5,  0.8,  1.3,  1.6,  2.0, 999];
+const BRBG_BREAKS_PON   = [-999, 5, 25, 50, 70, 90, 110, 130, 150, 200, 400, 999];
+const BRBG_BREAKS_PCTILE= [-999, 0.02, 0.05, 0.10, 0.20, 0.30, 0.70, 0.80, 0.90, 0.95, 0.98, 999];
+const RDBU_BREAKS       = [-999, 0.02, 0.05, 0.10, 0.20, 0.30, 0.70, 0.80, 0.90, 0.95, 0.98, 999];
+
+/* ── Hand-tuned default color arrays (11 colors each) ───────── */
+const USDM_COLORS = ["#730000","#E60000","#FFAA00","#FCD37F","#FFFF00","#FFFFFF",
+                     "#82FCF9","#32E1FA","#325CFE","#4030E3","#303B83"];
+const BRBG_COLORS = ["#543005","#8C510A","#BF812D","#DFC27D","#F6E8C3","#FFFFFF",
+                     "#C7EAE5","#80CDC1","#35978F","#01665E","#003C30"];
+const RDBU_COLORS = ["#313695","#4575B4","#74ADD1","#ABD9E9","#E0F3F8","#FFFFFF",
+                     "#FEE090","#FDAE61","#F46D43","#D73027","#A50026"];
+const BLUES_COLORS = ["#f7fbff","#deebf7","#c6dbef","#9ecae1","#6baed6","#4292c6","#2171b5","#08519c","#08306b"];
+
+/* ════════════════════════════════════════════════════════════════
+   PALETTE SYSTEM
+   ════════════════════════════════════════════════════════════════ */
+
+/* Named palettes — either a fixed colors array or a chroma scale name */
+const PALETTE_DEFS = {
+  usdm:     { label: 'USDM',     colors: USDM_COLORS },
+  brbg:     { label: 'BrBG',     colors: BRBG_COLORS },
+  rdbu:     { label: 'RdBu',     colors: RDBU_COLORS },
+  blues:    { label: 'Blues',    colors: BLUES_COLORS },
+  cb_rdbu:  { label: 'RdBu CB',  sample: 'RdBu'     },
+  piyg:     { label: 'PiYG',     sample: 'PiYG'     },
+  puor:     { label: 'PuOr',     sample: 'PuOr'     },
+  spectral: { label: 'Spectral', sample: 'Spectral' },
+  prgn:     { label: 'PRGn',     sample: 'PRGn'     },
+  cb_brbg:  { label: 'BrBG CB',  sample: 'BrBG'     },
+  ylorrd:   { label: 'YlOrRd',   sample: 'YlOrRd'   },
+  viridis:  { label: 'Viridis',  sample: 'Viridis'  },
+  greens:   { label: 'Greens',   sample: 'Greens'   },
+  plasma:   { label: 'Plasma',   sample: 'Plasma'   },
+};
+
+/* Sample n colors from a named palette, optionally reversed */
+function getPaletteColors(key, n, reversed) {
+  const def = PALETTE_DEFS[key];
+  let colors;
+  if (def.colors) {
+    colors = n === def.colors.length
+      ? [...def.colors]
+      : chroma.scale(def.colors).colors(n);
+  } else {
+    colors = chroma.scale(def.sample).colors(n);
+  }
+  return reversed ? colors.reverse() : colors;
+}
+
+/* ── Variable catalog ─────────────────────────────────────────── */
+const VAR_CONFIG = {
+  spi:          { label: "SPI",                             prefix: "spi_",          paletteGroup: 'idx_diverging',  defaultPalette: 'usdm',    reversed: false, breaks: USDM_BREAKS,        labelFmt: v => v.toFixed(1),   dynamic: false, description: "The Standardized Precipitation Index (SPI) measures precipitation anomalies relative to a long-term climatology. Negative values indicate drought conditions; positive values indicate wet conditions." },
+  spei:         { label: "SPEI",                            prefix: "spei_",         paletteGroup: 'idx_diverging',  defaultPalette: 'usdm',    reversed: false, breaks: USDM_BREAKS,        labelFmt: v => v.toFixed(1),   dynamic: false, description: "The Standardized Precipitation-Evapotranspiration Index (SPEI) incorporates both precipitation and potential evapotranspiration to capture the effect of temperature on drought. It is interpreted similarly to SPI." },
+  eddi:         { label: "EDDI",                            prefix: "eddi_",         paletteGroup: 'idx_diverging',  defaultPalette: 'usdm',    reversed: true,  breaks: USDM_BREAKS,        labelFmt: v => v.toFixed(1),   dynamic: false, description: "The Evaporative Demand Drought Index (EDDI) characterizes drought and hot-dry anomalies based on atmospheric evaporative demand. Positive values indicate anomalously high evaporative demand (drought stress)." },
+  svpdi:        { label: "SVPDI",                           prefix: "svpdi_",        paletteGroup: 'idx_diverging',  defaultPalette: 'usdm',    reversed: true,  breaks: USDM_BREAKS,        labelFmt: v => v.toFixed(1),   dynamic: false, description: "The Standardized Vapor Pressure Deficit Index (SVPDI) measures anomalies in vapor pressure deficit, an indicator of atmospheric dryness. Positive values reflect drier-than-normal atmospheric conditions." },
+  precip_pon:   { label: "Precipitation — % of Normal",     prefix: "precip_pon_",   paletteGroup: 'pon',            defaultPalette: 'brbg',    reversed: false, dynamic: true,  dynamicType: 'diverging_centered', center: 100, description: "Precipitation expressed as a percentage of the long-term normal for the selected period. Values below 100% indicate below-normal precipitation; values above 100% indicate above-normal precipitation." },
+  precip_dev:   { label: "Precipitation — Departure (mm)",  prefix: "precip_dev_",   paletteGroup: 'dyn_diverging',  defaultPalette: 'brbg',    reversed: false, dynamic: true,  dynamicType: 'diverging',  description: "Precipitation departure from the long-term normal, expressed in millimeters. Negative values indicate a precipitation deficit; positive values indicate a surplus." },
+  precip_pctile:{ label: "Precipitation — Percentile",      prefix: "precip_pctile_",paletteGroup: 'pctile',         defaultPalette: 'usdm',    reversed: false, breaks: BRBG_BREAKS_PCTILE, labelFmt: v => v.toFixed(2),   dynamic: false, description: "Precipitation expressed as a percentile relative to the historical distribution. Low percentiles (near 0) indicate unusually dry conditions; high percentiles (near 1) indicate unusually wet conditions." },
+  precip_in:    { label: "Precipitation — Accumulation (in)",prefix: "precip_in_",   paletteGroup: 'dyn_sequential', defaultPalette: 'viridis', reversed: true,  dynamic: true,  dynamicType: 'sequential', description: "Total accumulated precipitation over the selected period, expressed in inches. This is the raw precipitation total without comparison to a historical baseline." },
+  vpd_pon:      { label: "VPD — Percent of Normal",         prefix: "vpd_pon_",      paletteGroup: 'pon',            defaultPalette: 'brbg',    reversed: true,  dynamic: true,  dynamicType: 'diverging_centered', center: 100, description: "Vapor pressure deficit expressed as a percentage of the long-term normal. Values above 100% indicate higher-than-normal atmospheric dryness; values below 100% indicate lower-than-normal dryness." },
+  vpd_dev:      { label: "VPD — Departure",                 prefix: "vpd_dev_",      paletteGroup: 'dyn_diverging',  defaultPalette: 'brbg',    reversed: true,  dynamic: true,  dynamicType: 'diverging',  description: "Vapor pressure deficit departure from the long-term normal. Positive values indicate anomalously high atmospheric dryness; negative values indicate anomalously moist atmospheric conditions." },
+  vpd_pctile:   { label: "VPD — Percentile",                prefix: "vpd_pctile_",   paletteGroup: 'pctile',         defaultPalette: 'usdm',    reversed: true,  breaks: RDBU_BREAKS,         labelFmt: v => v.toFixed(2),   dynamic: false, description: "Vapor pressure deficit expressed as a percentile relative to the historical distribution. High percentiles indicate anomalously high evaporative demand and atmospheric dryness." },
+  tmax_pctile:  { label: "Maximum Temperature — Percentile",prefix: "tmax_pctile_",  paletteGroup: 'pctile',         defaultPalette: 'usdm',    reversed: true,  breaks: RDBU_BREAKS,         labelFmt: v => v.toFixed(2),   dynamic: false, description: "Daily maximum temperature expressed as a percentile relative to the historical distribution. High percentiles indicate anomalously warm temperatures that can intensify drought conditions." },
+};
+
+/* ── Scale builders ──────────────────────────────────────────── */
+function makeStepScale(breaks, colors) {
+  return function(v) {
+    for (let i = 0; i < colors.length; i++) {
+      if (v >= breaks[i] && v < breaks[i + 1]) return chroma(colors[i]);
+    }
+    return chroma(colors[colors.length - 1]);
+  };
+}
+
+function makeBreakLabels(breaks, colors, fmt) {
+  const rows = [];
+  for (let i = 1; i < breaks.length - 1; i++) {
+    const lo = breaks[i - 1] === -999 ? null : breaks[i - 1];
+    const hi = breaks[i]     ===  999 ? null : breaks[i];
+    let label;
+    if      (lo === null) label = `< ${fmt(hi)}`;
+    else if (hi === null) label = `≥ ${fmt(lo)}`;
+    else                  label = `${fmt(lo)} – ${fmt(hi)}`;
+    rows.push({ color: colors[i - 1], label });
+  }
+  return rows;
+}
+
+/* Build { scaleFn, legendRows } for any variable + palette + (optional) georaster.
+   rangeOverride = { min, max } — either value may be null (= use raster stat). */
+function buildScale(varKey, paletteKey, georaster, rangeOverride) {
+  const cfg    = VAR_CONFIG[varKey];
+  const colors = getPaletteColors(paletteKey, 11, cfg.reversed);
+
+  if (!cfg.dynamic) {
+    return {
+      scaleFn:    makeStepScale(cfg.breaks, colors),
+      legendRows: makeBreakLabels(cfg.breaks, colors, cfg.labelFmt),
+    };
+  }
+
+  /* Dynamic: derive auto stats from raster, then apply any overrides */
+  const rawMin = georaster.mins[0];
+  const rawMax = georaster.maxs[0];
+  const autoMin = (rawMin === -9999 ? 0 : rawMin) * 0.01;
+  const autoMax = rawMax * 0.01;
+
+  const ov  = rangeOverride || {};
+  const dMin = (ov.min != null && ov.min !== "") ? parseFloat(ov.min) : autoMin;
+  const dMax = (ov.max != null && ov.max !== "") ? parseFloat(ov.max) : autoMax;
+
+  if (cfg.dynamicType === 'diverging_centered') {
+    const ctr    = cfg.center || 0;
+    const absMax = Math.max(Math.abs(dMin - ctr), Math.abs(dMax - ctr));
+    const cs     = chroma.scale(colors).domain([ctr - absMax, ctr, ctr + absMax]).mode("lab");
+    const steps  = 6;
+    return {
+      scaleFn: v => cs(v),
+      legendRows: Array.from({ length: steps * 2 }, (_, i) => {
+        const lo = (ctr - absMax) + absMax * 2 / (steps * 2) * i;
+        const hi = lo + absMax * 2 / (steps * 2);
+        return { color: cs((lo + hi) / 2).hex(), label: `${lo.toFixed(0)} – ${hi.toFixed(0)}` };
+      }),
+    };
+  } else if (cfg.dynamicType === 'sequential') {
+    const cs    = chroma.scale(colors).domain([dMin, dMax]).mode("lab");
+    const steps = 6;
+    const span  = dMax - dMin;
+    return {
+      scaleFn: v => cs(v),
+      legendRows: Array.from({ length: steps }, (_, i) => {
+        const lo = dMin + span / steps * i;
+        const hi = dMin + span / steps * (i + 1);
+        return { color: cs((lo + hi) / 2).hex(), label: `${lo.toFixed(1)} – ${hi.toFixed(1)} in` };
+      }),
+    };
+  } else {
+    const absMax = Math.max(Math.abs(dMin), Math.abs(dMax));
+    const cs    = chroma.scale(colors).domain([-absMax, 0, absMax]).mode("lab");
+    const steps = 6;
+    return {
+      scaleFn: v => cs(v),
+      legendRows: Array.from({ length: steps * 2 }, (_, i) => {
+        const lo = -absMax + absMax * 2 / (steps * 2) * i;
+        const hi = lo + absMax * 2 / (steps * 2);
+        return { color: cs((lo + hi) / 2).hex(), label: `${lo.toFixed(1)} – ${hi.toFixed(1)}` };
+      }),
+    };
+  }
+}
+
+/* ── Range helpers ────────────────────────────────────────────── */
+
+/* Compute min/max of scaled pixel values visible in the current map viewport.
+   Samples a grid of up to ~300×300 points for performance. */
+function getVisibleRange(georaster) {
+  const bounds = map.getBounds();
+  const { xmin, xmax, ymin, ymax, width, height, values, noDataValue } = georaster;
+
+  const cellW = (xmax - xmin) / width;
+  const cellH = (ymax - ymin) / height;
+
+  // Intersect map viewport with raster extent
+  const clipW = Math.max(xmin, bounds.getWest());
+  const clipE = Math.min(xmax, bounds.getEast());
+  const clipS = Math.max(ymin, bounds.getSouth());
+  const clipN = Math.min(ymax, bounds.getNorth());
+  if (clipW >= clipE || clipS >= clipN) return null;
+
+  // Convert to pixel indices (rows are top-to-bottom in georaster.values)
+  const colStart = Math.max(0, Math.floor((clipW - xmin) / cellW));
+  const colEnd   = Math.min(width,  Math.ceil((clipE - xmin) / cellW));
+  const rowStart = Math.max(0, Math.floor((ymax - clipN) / cellH));
+  const rowEnd   = Math.min(height, Math.ceil((ymax - clipS) / cellH));
+
+  // Sub-sample to keep iteration fast
+  const step = Math.max(1, Math.floor(Math.sqrt((rowEnd - rowStart) * (colEnd - colStart)) / 300));
+  const band = values[0];
+  const noData = noDataValue != null ? noDataValue : -9999;
+
+  let lo = Infinity, hi = -Infinity;
+  for (let r = rowStart; r < rowEnd; r += step) {
+    const row = band[r];
+    if (!row) continue;
+    for (let c = colStart; c < colEnd; c += step) {
+      const v = row[c];
+      if (v == null || v === noData || v === -9999) continue;
+      const scaled = v * 0.01;
+      if (scaled < lo) lo = scaled;
+      if (scaled > hi) hi = scaled;
+    }
+  }
+  return (lo === Infinity) ? null : { min: lo, max: hi };
+}
+
+function getRangeOverride() {
+  const minVal = document.getElementById("range-min").value;
+  const maxVal = document.getElementById("range-max").value;
+  if (minVal === "" && maxVal === "") return null;
+  return { min: minVal !== "" ? parseFloat(minVal) : null,
+           max: maxVal !== "" ? parseFloat(maxVal) : null };
+}
+
+function updateRangeSection(varKey, georaster) {
+  const cfg = VAR_CONFIG[varKey];
+  const sec = document.getElementById("range-section");
+  sec.style.display = cfg.dynamic ? "block" : "none";
+  if (cfg.dynamic && georaster) {
+    const autoMin = ((georaster.mins[0] === -9999 ? 0 : georaster.mins[0]) * 0.01).toFixed(2);
+    const autoMax = (georaster.maxs[0] * 0.01).toFixed(2);
+    document.getElementById("range-min").placeholder = autoMin;
+    document.getElementById("range-max").placeholder = autoMax;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   STATE
+   ════════════════════════════════════════════════════════════════ */
+let activeVar        = "spi";
+let activeTS         = DEFAULT_TS;
+let activePeriod     = "rolling_30";
+let activeDate       = "Loading\u2026";
+let activeLayer      = null;
+let statesLayer      = null;
+let legendCtrl       = null;
+const georasterCache = {};   // url → georaster, avoids re-fetching on palette/range change
+
+/* ════════════════════════════════════════════════════════════════
+   MAP INIT
+   ════════════════════════════════════════════════════════════════ */
+const map = L.map("map", { zoomControl: false });
+L.control.zoom({ position: 'topright' }).addTo(map);
+
+L.tileLayer(
+  "https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png",
+  {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+    subdomains: "abcd",
+    maxZoom: 19,
+    crossOrigin: true   // required for canvas export
+  }
+).addTo(map);
+
+map.fitBounds([[24, -126], [50, -66]]);
+
+/* ════════════════════════════════════════════════════════════════
+   TIMESCALE STRIP
+   ════════════════════════════════════════════════════════════════ */
+const TS_LABELS = { wy: "Water Year", ytd: "Year to Date" };
+
+(function buildTimescaleStrip() {
+  const strip = document.getElementById("timescale-strip");
+  TIMESCALES.forEach(ts => {
+    const btn = document.createElement("button");
+    btn.className = "ts-btn" + (ts === DEFAULT_TS ? " active" : "");
+    btn.textContent = TS_LABELS[ts] || ts;
+    btn.dataset.ts = ts;
+    btn.addEventListener("click", () => {
+      if (ts === activeTS) return;
+      strip.querySelectorAll(".ts-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      activeTS = ts;
+      loadLayer(activeVar, activeTS, activePeriod);
+    });
+    strip.appendChild(btn);
+  });
+})();
+
+/* ════════════════════════════════════════════════════════════════
+   PERIOD TOGGLE
+   ════════════════════════════════════════════════════════════════ */
+document.querySelectorAll(".period-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (btn.dataset.period === activePeriod) return;
+    document.querySelectorAll(".period-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    activePeriod = btn.dataset.period;
+    loadLayer(activeVar, activeTS, activePeriod);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════
+   VARIABLE SELECT
+   ════════════════════════════════════════════════════════════════ */
+document.getElementById("var-select").addEventListener("change", function() {
+  activeVar = this.value;
+  // Clear custom range on variable change
+  document.getElementById("range-min").value = "";
+  document.getElementById("range-max").value = "";
+  updateRangeSection(activeVar, null);
+  updateVarInfo(activeVar);
+  loadLayer(activeVar, activeTS, activePeriod);
+});
+
+/* ════════════════════════════════════════════════════════════════
+   OPACITY
+   ════════════════════════════════════════════════════════════════ */
+const opacitySlider = document.getElementById("opacity-slider");
+const opacityVal    = document.getElementById("opacity-val");
+
+opacitySlider.addEventListener("input", function() {
+  const v = parseFloat(this.value);
+  opacityVal.textContent = v.toFixed(2);
+  if (activeLayer) activeLayer.setOpacity(v);
+});
+
+/* ════════════════════════════════════════════════════════════════
+   VARIABLE INFO
+   ════════════════════════════════════════════════════════════════ */
+function updateVarInfo(varKey) {
+  const desc = VAR_CONFIG[varKey].description || "";
+  document.getElementById("var-info-text").textContent = desc;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   STATES OVERLAY
+   ════════════════════════════════════════════════════════════════ */
+async function loadStates() {
+  const url = "https://data.climate.umt.edu/share/dashboard_misc/states.geojson";
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const geojson = await resp.json();
+    statesLayer = L.geoJSON(geojson, {
+      style: { color: "#445", weight: 1.5, fill: false, opacity: 0.6 }
+    }).addTo(map);
+  } catch (e) {
+    console.warn("State boundary load failed, skipping.", e);
+  }
+}
+
+document.getElementById("states-chk").addEventListener("change", function() {
+  if (!statesLayer) return;
+  if (this.checked) map.addLayer(statesLayer);
+  else              map.removeLayer(statesLayer);
+});
+
+/* ════════════════════════════════════════════════════════════════
+   COUNTIES OVERLAY
+   ════════════════════════════════════════════════════════════════ */
+let countiesLayer = null;
+
+async function loadCounties() {
+  const url = "https://data.climate.umt.edu/share/dashboard_misc/counties.geojson";
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const geojson = await resp.json();
+    countiesLayer = L.geoJSON(geojson, {
+      style: { color: "#667", weight: 0.6, fill: false, opacity: 0.35 }
+    });
+  } catch(e) {
+    console.warn("County boundary load failed:", e);
+  }
+}
+
+document.getElementById("counties-chk").addEventListener("change", function() {
+  if (!countiesLayer) return;
+  if (this.checked) { countiesLayer.addTo(map); if (statesLayer) statesLayer.bringToFront(); }
+  else              map.removeLayer(countiesLayer);
+});
+
+/* ════════════════════════════════════════════════════════════════
+   LEGEND
+   ════════════════════════════════════════════════════════════════ */
+function buildLegend(varKey, ts, period, legendRows) {
+  if (legendCtrl) { map.removeControl(legendCtrl); legendCtrl = null; }
+
+  const cfg         = VAR_CONFIG[varKey];
+  const periodLabel = period === "rolling_30" ? "Rolling 30yr" : "Full Period";
+
+  legendCtrl = L.control({ position: "bottomleft" });
+  legendCtrl.onAdd = function() {
+    const div = L.DomUtil.create("div", "leaflet-legend");
+    div.innerHTML = `
+      <h4>${cfg.label}</h4>
+      <div class="legend-sub">${ts} &nbsp;·&nbsp; ${periodLabel}</div>
+      <div class="legend-date">${activeDate}</div>
+      ${legendRows.map(r =>
+        `<div class="legend-row">
+          <div class="legend-swatch" style="background:${r.color}"></div>
+          <div class="legend-lbl">${r.label}</div>
+        </div>`
+      ).join("")}
+    `;
+    return div;
+  };
+  legendCtrl.addTo(map);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   DATE FETCH
+   ════════════════════════════════════════════════════════════════ */
+async function fetchDate(varKey, ts, period) {
+  const cfg = VAR_CONFIG[varKey];
+  const url = `${BASE_URL}/${cfg.prefix}${ts}_${period}_time.txt`;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error("not found");
+    activeDate = (await resp.text()).trim();
+  } catch {
+    activeDate = "Date N/A";
+  }
+  // Rebuild legend with updated date — need current legendRows from cache
+  const tifUrl = `${BASE_URL}/${cfg.prefix}${ts}_${period}.tif`;
+  const geo = georasterCache[tifUrl];
+  if (geo && legendCtrl) {
+    const paletteKey = VAR_CONFIG[varKey].defaultPalette;
+    const rangeOv = getRangeOverride() || (VAR_CONFIG[varKey].dynamic ? getVisibleRange(geo) : null);
+    const { legendRows } = buildScale(varKey, paletteKey, geo, rangeOv);
+    buildLegend(varKey, ts, period, legendRows);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   SPINNER
+   ════════════════════════════════════════════════════════════════ */
+function showSpinner() { document.getElementById("spinner").classList.add("active"); }
+function hideSpinner() { document.getElementById("spinner").classList.remove("active"); }
+
+/* ════════════════════════════════════════════════════════════════
+   RENDER LAYER  (uses a cached georaster — no fetch)
+   ════════════════════════════════════════════════════════════════ */
+function renderLayer(georaster, varKey, ts, period, paletteKey, rangeOverride) {
+  if (activeLayer) { map.removeLayer(activeLayer); activeLayer = null; }
+
+  const { scaleFn, legendRows } = buildScale(varKey, paletteKey, georaster, rangeOverride);
+
+  activeLayer = new GeoRasterLayer({
+    georaster,
+    opacity: parseFloat(opacitySlider.value),
+    pixelValuesToColorFn: function(vals) {
+      const raw = vals[0];
+      if (raw === -9999 || raw === undefined || raw === null) return null;
+      const c = scaleFn(raw * 0.01);
+      return c ? c.hex() : null;
+    },
+    resolution: 256,
+    updateWhenZooming: false
+  });
+
+  activeLayer.addTo(map);
+  buildLegend(varKey, ts, period, legendRows);
+  if (countiesLayer && map.hasLayer(countiesLayer)) countiesLayer.bringToFront();
+  if (statesLayer) statesLayer.bringToFront();
+}
+
+/* ════════════════════════════════════════════════════════════════
+   LOAD LAYER  (fetches if not cached, then renders)
+   ════════════════════════════════════════════════════════════════ */
+function loadLayer(varKey, ts, period) {
+  const cfg = VAR_CONFIG[varKey];
+  const url = `${BASE_URL}/${cfg.prefix}${ts}_${period}.tif`;
+
+  if (georasterCache[url]) {
+    updateRangeSection(varKey, georasterCache[url]);
+    renderLayer(georasterCache[url], varKey, ts, period, VAR_CONFIG[varKey].defaultPalette,
+      getRangeOverride() || (VAR_CONFIG[varKey].dynamic ? getVisibleRange(georasterCache[url]) : null));
+    fetchDate(varKey, ts, period);
+    return;
+  }
+
+  if (activeLayer) { map.removeLayer(activeLayer); activeLayer = null; }
+  showSpinner();
+
+  fetch(url)
+    .then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}: ${url}`);
+      return r.arrayBuffer();
+    })
+    .then(buf => parseGeoraster(buf))
+    .then(georaster => {
+      georasterCache[url] = georaster;
+      updateRangeSection(varKey, georaster);
+      renderLayer(georaster, varKey, ts, period, VAR_CONFIG[varKey].defaultPalette,
+        getRangeOverride() || (VAR_CONFIG[varKey].dynamic ? getVisibleRange(georaster) : null));
+      hideSpinner();
+      fetchDate(varKey, ts, period);
+    })
+    .catch(err => {
+      hideSpinner();
+      console.error("Layer load error:", err);
+      activeDate = "Load error";
+    });
+}
+
+/* ════════════════════════════════════════════════════════════════
+   COLLAPSIBLE SECTIONS
+   ════════════════════════════════════════════════════════════════ */
+function initCollapsibles() {
+  document.querySelectorAll(".section-label[data-sec]").forEach(label => {
+    label.addEventListener("click", () => {
+      const body = document.getElementById(label.dataset.sec);
+      if (!body) return;
+      const collapsed = body.classList.toggle("sec-collapsed");
+      label.classList.toggle("sec-collapsed", collapsed);
+    });
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════
+   RANGE INPUT HANDLERS
+   ════════════════════════════════════════════════════════════════ */
+["range-min", "range-max"].forEach(id => {
+  document.getElementById(id).addEventListener("change", () => {
+    const url = `${BASE_URL}/${VAR_CONFIG[activeVar].prefix}${activeTS}_${activePeriod}.tif`;
+    if (georasterCache[url]) {
+      renderLayer(georasterCache[url], activeVar, activeTS, activePeriod, VAR_CONFIG[activeVar].defaultPalette, getRangeOverride());
+    }
+  });
+});
+
+document.getElementById("range-reset").addEventListener("click", () => {
+  const url = `${BASE_URL}/${VAR_CONFIG[activeVar].prefix}${activeTS}_${activePeriod}.tif`;
+  const gr  = georasterCache[url];
+  if (!gr) return;
+
+  const visRange = getVisibleRange(gr);
+  if (visRange) {
+    document.getElementById("range-min").value = visRange.min.toFixed(2);
+    document.getElementById("range-max").value = visRange.max.toFixed(2);
+    renderLayer(gr, activeVar, activeTS, activePeriod, VAR_CONFIG[activeVar].defaultPalette, visRange);
+  } else {
+    // No intersection with viewport — fall back to full raster range
+    document.getElementById("range-min").value = "";
+    document.getElementById("range-max").value = "";
+    renderLayer(gr, activeVar, activeTS, activePeriod, VAR_CONFIG[activeVar].defaultPalette, null);
+  }
+});
+
+/* ════════════════════════════════════════════════════════════════
+   SIDEBAR COLLAPSE
+   ════════════════════════════════════════════════════════════════ */
+let sidebarOpen = true;
+const sidebar     = document.getElementById("sidebar");
+const collapseBtn = document.getElementById("collapse-btn");
+const spinner     = document.getElementById("spinner");
+
+function toggleSidebar() {
+  sidebarOpen = !sidebarOpen;
+  sidebar.classList.toggle("collapsed", !sidebarOpen);
+
+  if (sidebarOpen) {
+    collapseBtn.style.left = "var(--sidebar-w)";
+    collapseBtn.innerHTML  = "&#9664;";
+    spinner.style.left     = "var(--sidebar-w)";
+  } else {
+    collapseBtn.style.left = "0";
+    collapseBtn.innerHTML  = "&#9654;";
+    spinner.style.left     = "0";
+  }
+
+  setTimeout(() => map.invalidateSize(), 260);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   SCREENSHOT / EXPORT
+   ════════════════════════════════════════════════════════════════ */
+
+const MCO_LOGO_URL = "https://raw.githubusercontent.com/mt-climate-office/mco-drought-indicators/master/docs/misc_content/MCO_logo.png";
+let _logoCache = null;
+
+function loadImage(src) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload  = () => res(img);
+    img.onerror = () => rej(new Error("Could not load: " + src));
+    img.src = src;
+  });
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y,     x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x,     y + h, r);
+  ctx.arcTo(x,     y + h, x,     y,     r);
+  ctx.arcTo(x,     y,     x + w, y,     r);
+  ctx.closePath();
+}
+
+/* Render the active GeoRaster layer directly from pixel values at arbitrary
+   resolution — bypasses Leaflet tile rendering entirely, so it's always crisp. */
+function renderRasterDirect(georaster, scaleFn, opacity, outW, outH) {
+  const bounds = map.getBounds();
+  const mapW = bounds.getWest(), mapE = bounds.getEast();
+  const mapN = bounds.getNorth(), mapS = bounds.getSouth();
+
+  const { xmin, xmax, ymin, ymax, width, height, values, noDataValue } = georaster;
+  const noData = noDataValue != null ? noDataValue : -9999;
+  const cellW  = (xmax - xmin) / width;
+  const cellH  = (ymax - ymin) / height;
+
+  const canvas = document.createElement("canvas");
+  canvas.width  = outW;
+  canvas.height = outH;
+  const ctx = canvas.getContext("2d");
+  const img = ctx.createImageData(outW, outH);
+  const d   = img.data;
+  const band = values[0];
+  const alpha = Math.round(opacity * 255);
+
+  for (let py = 0; py < outH; py++) {
+    const lat = mapN - (mapN - mapS) * py / outH;
+    for (let px = 0; px < outW; px++) {
+      const lng = mapW + (mapE - mapW) * px / outW;
+
+      const col = Math.floor((lng - xmin) / cellW);
+      const row = Math.floor((ymax - lat) / cellH);
+      if (col < 0 || col >= width || row < 0 || row >= height) continue;
+
+      const raw = band[row] && band[row][col];
+      if (raw == null || raw === noData || raw === -9999) continue;
+
+      const c = scaleFn(raw * 0.01);
+      if (!c) continue;
+
+      const rgb = c.rgb();
+      const i   = (py * outW + px) * 4;
+      d[i]   = rgb[0];
+      d[i+1] = rgb[1];
+      d[i+2] = rgb[2];
+      d[i+3] = alpha;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
+function drawLegendOnCanvas(ctx, offsetY, sc) {
+  const url = `${BASE_URL}/${VAR_CONFIG[activeVar].prefix}${activeTS}_${activePeriod}.tif`;
+  const geo = georasterCache[url];
+  if (!geo) return;
+
+  const rangeOv = getRangeOverride() || (VAR_CONFIG[activeVar].dynamic ? getVisibleRange(geo) : null);
+  const { legendRows } = buildScale(activeVar, VAR_CONFIG[activeVar].defaultPalette, geo, rangeOv);
+  if (!legendRows || !legendRows.length) return;
+
+  const cfg         = VAR_CONFIG[activeVar];
+  const periodLabel = activePeriod === "rolling_30" ? "Rolling 30yr" : "Full Period";
+
+  const sw  = Math.round(22 * sc);
+  const sh  = Math.round(16 * sc);
+  const lh  = sh + Math.round(5 * sc);
+  const pad = Math.round(14 * sc);
+  const fs  = Math.round(12 * sc);
+  const tfs = Math.round(15 * sc);
+
+  ctx.font = `${fs}px 'Segoe UI', sans-serif`;
+  const maxLW  = Math.max(...legendRows.map(r => ctx.measureText(r.label).width));
+  const panelW = pad * 2 + sw + Math.round(10 * sc) + maxLW;
+  const panelH = pad * 2 + tfs + Math.round(6 * sc) + fs + Math.round(10 * sc) + legendRows.length * lh;
+  const px     = Math.round(20 * sc);
+  const py     = ctx.canvas.height - panelH - Math.round(20 * sc);
+
+  ctx.fillStyle = "rgba(18,24,34,0.93)";
+  roundRect(ctx, px, py, panelW, panelH, Math.round(8 * sc));
+  ctx.fill();
+
+  let cy = py + pad;
+  ctx.textBaseline = "top";
+  ctx.textAlign    = "left";
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = `bold ${tfs}px 'Segoe UI', sans-serif`;
+  ctx.fillText(cfg.label, px + pad, cy);
+  cy += tfs + Math.round(5 * sc);
+
+  ctx.fillStyle = "#8a99b0";
+  ctx.font = `${fs}px 'Segoe UI', sans-serif`;
+  ctx.fillText(`${activeTS}  ·  ${periodLabel}`, px + pad, cy);
+  cy += fs + Math.round(10 * sc);
+
+  legendRows.forEach(row => {
+    ctx.fillStyle = row.color;
+    ctx.fillRect(px + pad, cy, sw, sh);
+    ctx.fillStyle = "#c8d4e0";
+    ctx.font = `${fs}px 'Segoe UI', sans-serif`;
+    ctx.fillText(row.label, px + pad + sw + Math.round(8 * sc), cy + (sh - fs) / 2);
+    cy += lh;
+  });
+}
+
+async function takeScreenshot() {
+  const btn = document.getElementById("screenshot-btn");
+  btn.disabled = true;
+  btn.querySelector("svg").style.animation = "spin 0.8s linear infinite";
+
+  try {
+    if (!_logoCache) _logoCache = await loadImage(MCO_LOGO_URL);
+
+    const mapEl    = document.getElementById("map");
+    const SCALE    = 2;                            // output DPI multiplier
+    const mapW_px  = mapEl.offsetWidth  * SCALE;
+    const mapH_px  = mapEl.offsetHeight * SCALE;
+    const HEADER_H = Math.round(68 * SCALE);
+
+    /* ── 1. Capture basemap tiles + state vector via html2canvas ── */
+    const baseCanvas = await html2canvas(mapEl, {
+      useCORS:         true,
+      allowTaint:      false,
+      scale:           SCALE,
+      backgroundColor: "#e8e0d8",   // CartoDB fallback
+      logging:         false,
+      // Skip the GeoRaster layer tiles — we re-render them at full res below
+      ignoreElements: el => el.tagName === "CANVAS" && el.closest(".leaflet-tile-container") !== null
+    });
+
+    /* ── 2. Re-render the raster at full output resolution ─────── */
+    const rasterCanvas = (() => {
+      const url = `${BASE_URL}/${VAR_CONFIG[activeVar].prefix}${activeTS}_${activePeriod}.tif`;
+      const geo = georasterCache[url];
+      if (!geo) return null;
+      const rangeOv = getRangeOverride() || (VAR_CONFIG[activeVar].dynamic ? getVisibleRange(geo) : null);
+      const { scaleFn } = buildScale(activeVar, VAR_CONFIG[activeVar].defaultPalette, geo, rangeOv);
+      const opacity = parseFloat(document.getElementById("opacity-slider").value);
+      return renderRasterDirect(geo, scaleFn, opacity, mapW_px, mapH_px);
+    })();
+
+    /* ── 3. Composite onto output canvas ───────────────────────── */
+    const out = document.createElement("canvas");
+    out.width  = mapW_px;
+    out.height = mapH_px + HEADER_H;
+    const ctx  = out.getContext("2d");
+
+    // Header
+    ctx.fillStyle = "#1e2530";
+    ctx.fillRect(0, 0, mapW_px, HEADER_H);
+    ctx.fillStyle = "#1a6faf";
+    ctx.fillRect(0, HEADER_H - Math.round(3 * SCALE), mapW_px, Math.round(3 * SCALE));
+
+    // Logo
+    const logoH = HEADER_H - Math.round(16 * SCALE);
+    const logoW = Math.round(_logoCache.width * logoH / _logoCache.height);
+    ctx.drawImage(_logoCache, Math.round(14 * SCALE), Math.round(8 * SCALE), logoW, logoH);
+
+    // Header text
+    const cfg         = VAR_CONFIG[activeVar];
+    const periodLabel = activePeriod === "rolling_30" ? "Rolling 30yr" : "Full Period";
+    const dateTxt     = activeDate;
+    const titleFS     = Math.round(16 * SCALE);
+    const subFS       = Math.round(11 * SCALE);
+    const textX       = logoW + Math.round(22 * SCALE);
+
+    ctx.textBaseline = "middle";
+    ctx.textAlign    = "left";
+    ctx.fillStyle    = "#e8ecf0";
+    ctx.font         = `bold ${titleFS}px 'Segoe UI', sans-serif`;
+    ctx.fillText(`${cfg.label}  ·  ${activeTS}  ·  ${periodLabel}`, textX, HEADER_H * 0.36);
+    ctx.fillStyle = "#8a99b0";
+    ctx.font      = `${subFS}px 'Segoe UI', sans-serif`;
+    ctx.fillText(`MCO Drought Dashboard  |  Data through: ${dateTxt}`, textX, HEADER_H * 0.72);
+
+    // Basemap (from html2canvas)
+    ctx.drawImage(baseCanvas, 0, HEADER_H);
+
+    // Raster overlay (direct render, always crisp)
+    if (rasterCanvas) ctx.drawImage(rasterCanvas, 0, HEADER_H);
+
+    // Legend
+    drawLegendOnCanvas(ctx, HEADER_H, SCALE);
+
+    // Attribution
+    ctx.fillStyle    = "rgba(255,255,255,0.5)";
+    ctx.font         = `${Math.round(9 * SCALE)}px 'Segoe UI', sans-serif`;
+    ctx.textBaseline = "bottom";
+    ctx.textAlign    = "right";
+    ctx.fillText("Montana Climate Office  |  climate.umt.edu/drought",
+                 mapW_px - Math.round(10 * SCALE),
+                 out.height - Math.round(8 * SCALE));
+
+    // Download
+    const safeName = cfg.label.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+    const a = document.createElement("a");
+    a.download = `mco_drought_${safeName}_${activeTS}_${activePeriod}.png`;
+    a.href = out.toDataURL("image/png");
+    a.click();
+
+  } catch (e) {
+    console.error("Screenshot failed:", e);
+    alert("Export failed: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.querySelector("svg").style.animation = "";
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   INIT
+   ════════════════════════════════════════════════════════════════ */
+initCollapsibles();
+loadStates();
+loadCounties();
+updateRangeSection(activeVar, null);
+updateVarInfo(activeVar);
+loadLayer(activeVar, activeTS, activePeriod);
+</script>
+</body>
+</html>
