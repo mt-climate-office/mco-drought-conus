@@ -1,0 +1,13 @@
+aws_region     = "us-west-2"
+aws_profile    = "mco"            # AWS SSO profile in ~/.aws/config
+aws_account_id = "123456789012"   # your 12-digit AWS account ID
+vpc_id         = "vpc-xxxxxxxxxxxxxxxxx"
+
+# Subnet(s) for Fargate tasks and EFS mount targets.
+# If omitted, all subnets in the VPC are used.
+subnet_ids = ["subnet-xxxxxxxxxxxxxxxxx"]
+
+# Optional: attach existing security groups to Fargate tasks
+# extra_security_group_ids = ["sg-xxxxxxxxxxxxxxxxx"]
+
+s3_bucket_name = "mco-gridmet"

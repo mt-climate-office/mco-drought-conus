@@ -7,8 +7,8 @@
 ##############################################################
 
 # ---- roots -------------------------------------------------------------------
-project_root = "~/mco-drought-conus"
-data_root    = "~/mco-drought-conus-data"
+project_root = Sys.getenv("PROJECT_DIR", unset = "~/mco-drought-conus")
+data_root    = Sys.getenv("DATA_DIR",    unset = "~/mco-drought-conus-data")
 interim_dir  = fs::path(data_root, "interim")
 base_gridmet = fs::path(interim_dir, "gridmet")
 invisible(fs::dir_create(c(interim_dir, base_gridmet)))
