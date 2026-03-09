@@ -14,7 +14,7 @@ export TILE_DY="${TILE_DY:-2}"
 
 # GridMET refresh controls (no merge)
 export GRIDMET_REFRESH_YEARS="${GRIDMET_REFRESH_YEARS:-2}"
-export START_YEAR="${START_YEAR:-1991}"
+export START_YEAR="${START_YEAR:-1979}"
 
 # Make temp dirs writable and keep terra/gdal scratch off /tmp if you want
 export TMPDIR="${TMPDIR:-$DATA_DIR/tmp}"
