@@ -3,8 +3,8 @@ services:
     user: "rstudio"
     platform: linux/amd64
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..           # repo root — needed so COPY R/ works in Dockerfile
+      dockerfile: docker/Dockerfile
     image: mco-drought-pipeline:latest
     container_name: mco-drought
     environment:
@@ -21,6 +21,6 @@ services:
     mem_limit: 30g
     mem_reservation: 8g
     volumes:
-      - ${HOME}/mco-drought-conus:/home/rstudio/mco-drought-conus:rw
-      - ${HOME}/mco-drought-conus-data:/home/rstudio/mco-drought-conus-data:rw
+      - ..:/home/rstudio/mco-drought-conus:rw                          # repo root (relative to this file)
+      - ${DATA_DIR:-${HOME}/mco-drought-conus-data}:/home/rstudio/mco-drought-conus-data:rw
     restart: "no"
