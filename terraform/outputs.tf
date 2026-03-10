@@ -32,3 +32,23 @@ output "scheduler_arn" {
   description = "EventBridge Scheduler ARN (nightly trigger)"
   value       = aws_scheduler_schedule.nightly.arn
 }
+
+output "storage_browser_url" {
+  description = "Public URL of the Storage Browser app"
+  value       = "https://${aws_cloudfront_distribution.storage_browser.domain_name}"
+}
+
+output "storage_browser_identity_pool_id" {
+  description = "Cognito Identity Pool ID used by the Storage Browser app"
+  value       = aws_cognito_identity_pool.storage_browser.id
+}
+
+output "storage_browser_app_bucket" {
+  description = "S3 bucket hosting the Storage Browser React app"
+  value       = aws_s3_bucket.storage_browser_app.bucket
+}
+
+output "storage_browser_cloudfront_id" {
+  description = "CloudFront distribution ID (needed for cache invalidation on deploy)"
+  value       = aws_cloudfront_distribution.storage_browser.id
+}

@@ -23,6 +23,7 @@ WORKDIR /opt/app
 # Local docker-compose runs override this via the source volume mount.
 COPY R/ /opt/app/R/
 COPY docker/run_once.sh /opt/app/run_once.sh
-RUN chmod +x /opt/app/run_once.sh
+COPY docker/make_web_cogs.sh /opt/app/docker/make_web_cogs.sh
+RUN chmod +x /opt/app/run_once.sh /opt/app/docker/make_web_cogs.sh
 
 CMD ["/opt/app/run_once.sh"]

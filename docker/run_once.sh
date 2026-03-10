@@ -62,26 +62,51 @@ if [ -n "${AWS_BUCKET:-}" ]; then
   aws s3 sync "s3://${AWS_BUCKET}/raw/" "$DATA_DIR/raw/" --no-progress || true
   echo "=== $(date) — Restoring raw file timestamps ==="
   s3_restore_timestamps "${AWS_BUCKET}" "raw/" "$DATA_DIR/raw/" || true
+
+  # Restore from latest/ so freshness checks see previously-completed outputs.
+  echo "=== $(date) — Syncing derived outputs from S3 (latest/) ==="
+  mkdir -p "$DATA_DIR/derived/conus_drought"
+  aws s3 sync "s3://${AWS_BUCKET}/derived/conus_drought/latest/" "$DATA_DIR/derived/conus_drought/" --no-progress || true
+  echo "=== $(date) — Restoring derived file timestamps ==="
+  s3_restore_timestamps "${AWS_BUCKET}" "derived/conus_drought/latest/" "$DATA_DIR/derived/conus_drought/" || true
+
   echo "=== $(date) — Cache restore complete ==="
 fi
+
+# Intermediate sync after each metric script — keeps latest/ current so a
+# failed run can resume without reprocessing completed datasets.
+s3_sync_derived() {
+  if [ -n "${AWS_BUCKET:-}" ]; then
+    echo "=== $(date) — Syncing derived/conus_drought to S3 (latest/) ==="
+    aws s3 sync \
+      "$DATA_DIR/derived/conus_drought/" \
+      "s3://${AWS_BUCKET}/derived/conus_drought/latest/" \
+      --no-progress || true
+  fi
+}
 
 echo "=== $(date) — Syncing GridMET cache (START_YEAR=${START_YEAR}) ==="
 Rscript "$PROJECT_DIR/R/1_gridmet-cache.R"
 
 echo "=== $(date) — Running precipitation metrics ==="
 Rscript "$PROJECT_DIR/R/2_metrics-precip.R"
+s3_sync_derived
 
 echo "=== $(date) — Running SPEI metrics ==="
 Rscript "$PROJECT_DIR/R/3_metrics-spei.R"
+s3_sync_derived
 
 echo "=== $(date) — Running EDDI metrics ==="
 Rscript "$PROJECT_DIR/R/4_metrics-eddi.R"
+s3_sync_derived
 
 echo "=== $(date) — Running VPD metrics ==="
 Rscript "$PROJECT_DIR/R/5_metrics-vpd.R"
+s3_sync_derived
 
 echo "=== $(date) — Running tmax metrics ==="
 Rscript "$PROJECT_DIR/R/6_metrics-tmax.R"
+s3_sync_derived
 
 echo "=== $(date) — All drought metrics complete (precip, SPEI, EDDI, VPD, tmax) ==="
 
@@ -125,23 +150,59 @@ fi
 
 # ============================================================
 # S3 SYNC — derived outputs
-# Syncs derived/conus_drought/ to s3://$AWS_BUCKET/derived/conus_drought/
-# Only runs when AWS_BUCKET is set (i.e. in the Fargate/CI environment).
-# Local docker-compose runs skip this step automatically.
+# Publishes to:
+#   derived/conus_drought/{date}/    — date-stamped archive
+#   derived/conus_drought/latest/    — operational copy (with --delete)
+# and mirrored for conus_drought_web/.
+#
+# Data date is read from the _time.txt files the R scripts write
+# alongside each mosaic; falls back to today's date.
 # ============================================================
 if [ -n "${AWS_BUCKET:-}" ]; then
-  echo "=== $(date) — Syncing outputs to s3://${AWS_BUCKET}/derived/ ==="
+  # Determine the data date from the date embedded in output filenames,
+  # e.g. spi_15d_rolling_30_2026-03-10.tif → 2026-03-10.
+  DATA_DATE=$(find "$DATA_DIR/derived/conus_drought/" -name "*.tif" 2>/dev/null \
+    | head -1 | xargs basename 2>/dev/null \
+    | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' || true)
+  DATA_DATE="${DATA_DATE:-$(date +%Y-%m-%d)}"
+  echo "=== $(date) — Data date: ${DATA_DATE} ==="
+
+  # Remove any .tif files from prior runs (different date) so that latest/
+  # stays clean — only the current date's files get synced there.
+  find "$DATA_DIR/derived/conus_drought/" -name "*.tif" \
+    ! -name "*_${DATA_DATE}.tif" -delete 2>/dev/null || true
+  find "$DATA_DIR/derived/conus_drought_web/" -name "*.tif" \
+    ! -name "*_${DATA_DATE}.tif" -delete 2>/dev/null || true
+
+  echo "=== $(date) — Archiving outputs to s3://${AWS_BUCKET}/derived/ ==="
+
+  # conus_drought — date archive
   aws s3 sync \
     "$DATA_DIR/derived/conus_drought/" \
-    "s3://${AWS_BUCKET}/derived/conus_drought/" \
+    "s3://${AWS_BUCKET}/derived/conus_drought/${DATA_DATE}/" \
+    --no-progress
+
+  # conus_drought — latest (authoritative; --delete removes stale files)
+  aws s3 sync \
+    "$DATA_DIR/derived/conus_drought/" \
+    "s3://${AWS_BUCKET}/derived/conus_drought/latest/" \
     --delete \
     --no-progress
+
+  # conus_drought_web — date archive
   aws s3 sync \
     "$DATA_DIR/derived/conus_drought_web/" \
-    "s3://${AWS_BUCKET}/derived/conus_drought_web/" \
+    "s3://${AWS_BUCKET}/derived/conus_drought_web/${DATA_DATE}/" \
+    --no-progress
+
+  # conus_drought_web — latest
+  aws s3 sync \
+    "$DATA_DIR/derived/conus_drought_web/" \
+    "s3://${AWS_BUCKET}/derived/conus_drought_web/latest/" \
     --delete \
     --no-progress
-  echo "=== $(date) — S3 sync complete ==="
+
+  echo "=== $(date) — S3 sync complete (date=${DATA_DATE}) ==="
 else
   echo "=== $(date) — AWS_BUCKET not set; skipping S3 sync (local run) ==="
 fi

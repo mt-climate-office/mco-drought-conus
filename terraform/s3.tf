@@ -40,6 +40,7 @@ resource "aws_s3_bucket_cors_configuration" "outputs" {
     allowed_headers = ["*"]
     allowed_methods = ["GET", "HEAD"]
     allowed_origins = ["*"]
+    expose_headers  = ["Content-Range", "Accept-Ranges", "Content-Length", "ETag"]
     max_age_seconds = 3600
   }
 }
