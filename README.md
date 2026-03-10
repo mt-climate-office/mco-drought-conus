@@ -217,7 +217,7 @@ spei_15d_rolling_30.tif
 ## Cloud Architecture (AWS)
 
 The pipeline runs nightly on AWS Fargate, triggered by an EventBridge Scheduler rule at
-**6:00 PM Mountain Time** (DST-aware). Outputs are written to a public S3 bucket.
+**10:00 PM Mountain Time** (DST-aware). Outputs are written to a public S3 bucket.
 All infrastructure is managed with Terraform in the `terraform/` directory.
 
 ### Architecture Overview
