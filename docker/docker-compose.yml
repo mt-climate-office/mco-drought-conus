@@ -9,6 +9,7 @@ services:
     container_name: mco-drought
     environment:
       TZ: America/Denver
+      START_YEAR: "1979"
       CORES: "8"
       KEEP_TILES: "0"
       CONUS_MASK: "1"

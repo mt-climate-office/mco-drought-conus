@@ -11,7 +11,7 @@
 #   mclapply(fork) is used, which is safe here because NO terra SpatRaster
 #   objects are passed across the fork boundary. Workers receive only plain R
 #   objects (file paths, date vectors, sf tiles) and open their own NetCDF
-#   handles + terra sessions independently. Mirrors 2_precipitation-metrics.R.
+#   handles + terra sessions independently. Mirrors 2_metrics-precip.R.
 ##############################################################
 
 `%||%` = function(a, b) if (is.null(a)) b else a
@@ -68,6 +68,18 @@ suppressPackageStartupMessages({
   }
   try(unlink(src), silent = TRUE)
   invisible(TRUE)
+}
+
+# Return TRUE if any raw input is newer than the oldest existing output
+# (or if no outputs exist yet), i.e. a re-run is needed.
+.raw_newer_than_outputs = function(raw_files, output_dir, output_regexp) {
+  raw_mtime = max(fs::file_info(as.character(raw_files))$modification_time, na.rm = TRUE)
+  out_files = if (fs::dir_exists(output_dir))
+    fs::dir_ls(output_dir, regexp = output_regexp, type = "file")
+  else character(0)
+  if (!length(out_files)) return(TRUE)
+  out_mtime = min(fs::file_info(as.character(out_files))$modification_time, na.rm = TRUE)
+  raw_mtime > out_mtime
 }
 
 # Quick check for "all nodata / all NA"
@@ -619,6 +631,11 @@ run_eddi_metrics = function() {
 
   # Discover files + dates (metadata only — no raster data in main process)
   pet_files     = .list_raw_pet_files(raw_pet_dir)
+
+  if (!.raw_newer_than_outputs(pet_files, conus_root, "eddi_.*\\.tif$")) {
+    message(Sys.time(), " — EDDI outputs are up to date; skipping EDDI metrics run.")
+    return(invisible(FALSE))
+  }
   date_info     = collect_all_dates(pet_files)
   dates         = date_info$dates
   last_date_iso = format(max(dates, na.rm = TRUE))

@@ -61,7 +61,7 @@ variable "s3_bucket_name" {
 variable "schedule_time" {
   description = "Cron expression for the nightly run, evaluated in schedule_timezone"
   type        = string
-  default     = "cron(0 18 * * ? *)" # 6:00 PM daily
+  default     = "cron(0 22 * * ? *)" # 10:00 PM daily
 }
 
 variable "schedule_timezone" {

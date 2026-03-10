@@ -1,6 +1,6 @@
-# EventBridge Scheduler fires at 6:00 PM America/Denver (Mountain Time) every day.
-# The scheduler honors DST automatically: 6 PM MST (UTC-7) in winter,
-# 6 PM MDT (UTC-6) in summer.
+# EventBridge Scheduler fires at 10:00 PM America/Denver (Mountain Time) every day.
+# The scheduler honors DST automatically: 10 PM MST (UTC-7) in winter,
+# 10 PM MDT (UTC-6) in summer.
 resource "aws_scheduler_schedule" "nightly" {
   name       = "${var.project_name}-nightly"
   group_name = "default"
@@ -9,7 +9,7 @@ resource "aws_scheduler_schedule" "nightly" {
     mode = "OFF" # start at exactly the scheduled time
   }
 
-  schedule_expression          = var.schedule_time      # cron(0 18 * * ? *)
+  schedule_expression          = var.schedule_time      # cron(0 22 * * ? *)
   schedule_expression_timezone = var.schedule_timezone  # America/Denver
 
   target {
