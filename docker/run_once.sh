@@ -12,8 +12,6 @@ export CONUS_MASK="${CONUS_MASK:-1}"
 export TILE_DX="${TILE_DX:-2}"
 export TILE_DY="${TILE_DY:-2}"
 
-# GridMET refresh controls (no merge)
-export GRIDMET_REFRESH_YEARS="${GRIDMET_REFRESH_YEARS:-2}"
 export START_YEAR="${START_YEAR:-1979}"
 
 # Make temp dirs writable and keep terra/gdal scratch off /tmp if you want
@@ -52,36 +50,8 @@ if [ -n "${AWS_BUCKET:-}" ]; then
   echo "=== $(date) — Cache restore complete ==="
 fi
 
-echo "=== $(date) — Phase 1: filling any missing historical GridMET years (START_YEAR=${START_YEAR}) ==="
-echo "=== $(date) — Phase 2: force-refreshing last ${GRIDMET_REFRESH_YEARS} years for all vars ==="
-Rscript - <<'RS'
-suppressPackageStartupMessages({
-  library(fs)
-  library(terra)
-})
-
-terra::terraOptions(tempdir = Sys.getenv("TERRA_TEMP_DIR", unset = tempdir()))
-
-source(file.path(Sys.getenv("PROJECT_DIR"), "R", "1_gridmet-cache.R"))
-
-start_year = as.integer(Sys.getenv("START_YEAR", "1991"))
-
-# Phase 1: download any missing years across the full historical record.
-# gridmet_download_range uses overwrite=FALSE, so existing files are skipped.
-message("=== Phase 1: filling historical gaps (", start_year, "-present, skip existing) ===")
-for (var in c("pr", "pet", "vpd", "tmmx")) {
-  message("  ", var, " ...")
-  gridmet_download_range(var, start_year = start_year)
-}
-message("Phase 1 complete.")
-
-# Phase 2: always delete and re-download the last GRIDMET_REFRESH_YEARS years
-# for every variable, so preliminary/updated data is always replaced.
-message("=== Phase 2: force-refreshing last ", Sys.getenv("GRIDMET_REFRESH_YEARS", "2"),
-        " year(s) for all vars ===")
-gridmet_refresh_pr_pet_vpd_tmmx_raw()
-message("Phase 2 complete. GridMET cache ready.")
-RS
+echo "=== $(date) — Syncing GridMET cache (START_YEAR=${START_YEAR}) ==="
+Rscript "$PROJECT_DIR/R/1_gridmet-cache.R"
 
 echo "=== $(date) — Running precipitation metrics ==="
 Rscript "$PROJECT_DIR/R/2_metrics-precip.R"
