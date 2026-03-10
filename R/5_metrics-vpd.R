@@ -72,6 +72,18 @@ suppressPackageStartupMessages({
   invisible(TRUE)
 }
 
+# Return TRUE if any raw input is newer than the oldest existing output
+# (or if no outputs exist yet), i.e. a re-run is needed.
+.raw_newer_than_outputs = function(raw_files, output_dir, output_regexp) {
+  raw_mtime = max(fs::file_info(as.character(raw_files))$modification_time, na.rm = TRUE)
+  out_files = if (fs::dir_exists(output_dir))
+    fs::dir_ls(output_dir, regexp = output_regexp, type = "file")
+  else character(0)
+  if (!length(out_files)) return(TRUE)
+  out_mtime = min(fs::file_info(as.character(out_files))$modification_time, na.rm = TRUE)
+  raw_mtime > out_mtime
+}
+
 # Quick check for "all nodata / all NA" — samples to avoid full scans
 .has_any_data = function(r) {
   if (is.null(r)) return(FALSE)
@@ -648,6 +660,11 @@ run_vpd_metrics = function() {
 
   # Discover files + dates (metadata only — no raster data loaded in main process)
   vpd_files     = .list_raw_vpd_files(raw_vpd_dir)
+
+  if (!.raw_newer_than_outputs(vpd_files, conus_root, "svpdi_.*\\.tif$")) {
+    message(Sys.time(), " — VPD outputs are up to date; skipping VPD metrics run.")
+    return(invisible(FALSE))
+  }
   date_info     = collect_all_dates(vpd_files)
   dates         = date_info$dates
   last_date_iso = format(max(dates, na.rm = TRUE))

@@ -2,7 +2,6 @@
 set -euo pipefail
 PIPELINE_START=$SECONDS
 
-export HOME=/home/rstudio
 export PROJECT_DIR="${PROJECT_DIR:-$HOME/mco-drought-conus}"
 export DATA_DIR="${DATA_DIR:-$HOME/mco-drought-conus-data}"
 
@@ -12,8 +11,6 @@ export CONUS_MASK="${CONUS_MASK:-1}"
 export TILE_DX="${TILE_DX:-2}"
 export TILE_DY="${TILE_DY:-2}"
 
-# GridMET refresh controls (no merge)
-export GRIDMET_REFRESH_YEARS="${GRIDMET_REFRESH_YEARS:-2}"
 export START_YEAR="${START_YEAR:-1979}"
 
 # Make temp dirs writable and keep terra/gdal scratch off /tmp if you want
@@ -44,47 +41,36 @@ done
 # Pulls the GridMET raw + interim cache from S3 so subsequent
 # Fargate runs skip re-downloading the full historical record.
 # Only runs when AWS_BUCKET is set (local runs are unaffected).
+#
+# NOTE: aws s3 sync does not preserve file timestamps — restored
+# files get mtime = now, which would break curl -z (If-Modified-Since)
+# and the make-style dependency checks in the metrics scripts.
+# s3_restore_timestamps() re-applies the S3 LastModified time to each
+# local file after sync so the mtime-based logic works correctly.
 # ============================================================
+s3_restore_timestamps() {
+  local bucket="$1" s3_prefix="$2" local_dir="$3"
+  aws s3 ls --recursive "s3://${bucket}/${s3_prefix}" | \
+    while read -r date time _size key; do
+      local_file="${local_dir}${key#${s3_prefix}}"
+      [ -f "$local_file" ] && touch -d "${date} ${time} UTC" "$local_file"
+    done
+}
+
 if [ -n "${AWS_BUCKET:-}" ]; then
   echo "=== $(date) — Restoring GridMET cache from s3://${AWS_BUCKET}/cache/ ==="
   aws s3 sync "s3://${AWS_BUCKET}/cache/raw/"     "$DATA_DIR/raw/"     --no-progress || true
+  s3_restore_timestamps "${AWS_BUCKET}" "cache/raw/"     "$DATA_DIR/raw/"
   aws s3 sync "s3://${AWS_BUCKET}/cache/interim/" "$DATA_DIR/interim/" --no-progress || true
+  s3_restore_timestamps "${AWS_BUCKET}" "cache/interim/" "$DATA_DIR/interim/"
   echo "=== $(date) — Cache restore complete ==="
 fi
 
-echo "=== $(date) — Phase 1: filling any missing historical GridMET years (START_YEAR=${START_YEAR}) ==="
-echo "=== $(date) — Phase 2: force-refreshing last ${GRIDMET_REFRESH_YEARS} years for all vars ==="
-Rscript - <<'RS'
-suppressPackageStartupMessages({
-  library(fs)
-  library(terra)
-})
-
-terra::terraOptions(tempdir = Sys.getenv("TERRA_TEMP_DIR", unset = tempdir()))
-
-source(file.path(Sys.getenv("PROJECT_DIR"), "R", "1_gridmet-cache.R"))
-
-start_year = as.integer(Sys.getenv("START_YEAR", "1991"))
-
-# Phase 1: download any missing years across the full historical record.
-# gridmet_download_range uses overwrite=FALSE, so existing files are skipped.
-message("=== Phase 1: filling historical gaps (", start_year, "-present, skip existing) ===")
-for (var in c("pr", "pet", "vpd", "tmmx")) {
-  message("  ", var, " ...")
-  gridmet_download_range(var, start_year = start_year)
-}
-message("Phase 1 complete.")
-
-# Phase 2: always delete and re-download the last GRIDMET_REFRESH_YEARS years
-# for every variable, so preliminary/updated data is always replaced.
-message("=== Phase 2: force-refreshing last ", Sys.getenv("GRIDMET_REFRESH_YEARS", "2"),
-        " year(s) for all vars ===")
-gridmet_refresh_pr_pet_vpd_tmmx_raw()
-message("Phase 2 complete. GridMET cache ready.")
-RS
+echo "=== $(date) — Syncing GridMET cache (START_YEAR=${START_YEAR}) ==="
+Rscript "$PROJECT_DIR/R/1_gridmet-cache.R"
 
 echo "=== $(date) — Running precipitation metrics ==="
-Rscript "$PROJECT_DIR/R/2_precipitation-metrics.R"
+Rscript "$PROJECT_DIR/R/2_metrics-precip.R"
 
 echo "=== $(date) — Running SPEI metrics ==="
 Rscript "$PROJECT_DIR/R/3_metrics-spei.R"
