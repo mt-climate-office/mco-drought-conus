@@ -33,12 +33,12 @@ chown -R rstudio:rstudio "$DATA_DIR" 2>/dev/null || true
 chmod -R a+rwx "$DATA_DIR" 2>/dev/null || true
 
 for var in pr pet vpd tmmx; do
-  mkdir -p "$DATA_DIR/interim/gridmet/$var/raw"
+  mkdir -p "$DATA_DIR/raw/$var"
 done
 
 # ============================================================
-# S3 CACHE RESTORE
-# Pulls the GridMET raw + interim cache from S3 so subsequent
+# S3 RAW RESTORE
+# Pulls the GridMET raw files from S3 so subsequent
 # Fargate runs skip re-downloading the full historical record.
 # Only runs when AWS_BUCKET is set (local runs are unaffected).
 #
@@ -53,16 +53,15 @@ s3_restore_timestamps() {
   aws s3 ls --recursive "s3://${bucket}/${s3_prefix}" | \
     while read -r date time _size key; do
       local_file="${local_dir}${key#${s3_prefix}}"
-      [ -f "$local_file" ] && touch -d "${date} ${time} UTC" "$local_file"
+      if [ -f "$local_file" ]; then touch -d "${date} ${time} UTC" "$local_file"; fi
     done
 }
 
 if [ -n "${AWS_BUCKET:-}" ]; then
-  echo "=== $(date) — Restoring GridMET cache from s3://${AWS_BUCKET}/cache/ ==="
-  aws s3 sync "s3://${AWS_BUCKET}/cache/raw/"     "$DATA_DIR/raw/"     --no-progress || true
-  s3_restore_timestamps "${AWS_BUCKET}" "cache/raw/"     "$DATA_DIR/raw/"
-  aws s3 sync "s3://${AWS_BUCKET}/cache/interim/" "$DATA_DIR/interim/" --no-progress || true
-  s3_restore_timestamps "${AWS_BUCKET}" "cache/interim/" "$DATA_DIR/interim/"
+  echo "=== $(date) — Syncing raw GridMET files from S3 ==="
+  aws s3 sync "s3://${AWS_BUCKET}/raw/" "$DATA_DIR/raw/" --no-progress || true
+  echo "=== $(date) — Restoring raw file timestamps ==="
+  s3_restore_timestamps "${AWS_BUCKET}" "raw/" "$DATA_DIR/raw/" || true
   echo "=== $(date) — Cache restore complete ==="
 fi
 
@@ -114,15 +113,14 @@ echo "=== $(date) — Converting COGs to web-optimized COGs ==="
 bash "$PROJECT_DIR/docker/make_web_cogs.sh"
 
 # ============================================================
-# S3 CACHE SAVE
-# Pushes updated raw + interim files back to S3 so the next
+# S3 RAW SAVE
+# Pushes updated raw GridMET files back to S3 so the next
 # Fargate run can restore them rather than re-downloading.
 # ============================================================
 if [ -n "${AWS_BUCKET:-}" ]; then
-  echo "=== $(date) — Saving GridMET cache to s3://${AWS_BUCKET}/cache/ ==="
-  aws s3 sync "$DATA_DIR/raw/"     "s3://${AWS_BUCKET}/cache/raw/"     --no-progress
-  aws s3 sync "$DATA_DIR/interim/" "s3://${AWS_BUCKET}/cache/interim/" --no-progress
-  echo "=== $(date) — Cache save complete ==="
+  echo "=== $(date) — Saving raw GridMET files to s3://${AWS_BUCKET}/raw/ ==="
+  aws s3 sync "$DATA_DIR/raw/" "s3://${AWS_BUCKET}/raw/" --no-progress
+  echo "=== $(date) — Raw GridMET save complete ==="
 fi
 
 # ============================================================
@@ -132,10 +130,15 @@ fi
 # Local docker-compose runs skip this step automatically.
 # ============================================================
 if [ -n "${AWS_BUCKET:-}" ]; then
-  echo "=== $(date) — Syncing outputs to s3://${AWS_BUCKET}/derived/conus_drought/ ==="
+  echo "=== $(date) — Syncing outputs to s3://${AWS_BUCKET}/derived/ ==="
   aws s3 sync \
     "$DATA_DIR/derived/conus_drought/" \
     "s3://${AWS_BUCKET}/derived/conus_drought/" \
+    --delete \
+    --no-progress
+  aws s3 sync \
+    "$DATA_DIR/derived/conus_drought_web/" \
+    "s3://${AWS_BUCKET}/derived/conus_drought_web/" \
     --delete \
     --no-progress
   echo "=== $(date) — S3 sync complete ==="

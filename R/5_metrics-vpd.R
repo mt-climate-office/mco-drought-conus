@@ -109,7 +109,7 @@ derived_dir = .abs_path(fs::path(data_root, "derived"))
 tiles_root  = .abs_path(fs::path(derived_dir, "vpd_metrics"))
 conus_root  = .abs_path(fs::path(derived_dir, "conus_drought"))
 
-raw_vpd_dir = .abs_path(fs::path(interim_dir, "gridmet", "vpd", "raw"))
+raw_vpd_dir = .abs_path(fs::path(data_root, "raw", "vpd"))
 
 # temp dirs (set by run_once.sh; fallbacks here)
 r_temp     = .abs_path(Sys.getenv("R_TEMP_DIR",     unset = fs::path(data_root, "tmp", "R")))
