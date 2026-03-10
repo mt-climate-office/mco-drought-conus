@@ -41,11 +41,28 @@ done
 # Pulls the GridMET raw + interim cache from S3 so subsequent
 # Fargate runs skip re-downloading the full historical record.
 # Only runs when AWS_BUCKET is set (local runs are unaffected).
+#
+# NOTE: aws s3 sync does not preserve file timestamps — restored
+# files get mtime = now, which would break curl -z (If-Modified-Since)
+# and the make-style dependency checks in the metrics scripts.
+# s3_restore_timestamps() re-applies the S3 LastModified time to each
+# local file after sync so the mtime-based logic works correctly.
 # ============================================================
+s3_restore_timestamps() {
+  local bucket="$1" s3_prefix="$2" local_dir="$3"
+  aws s3 ls --recursive "s3://${bucket}/${s3_prefix}" | \
+    while read -r date time _size key; do
+      local_file="${local_dir}${key#${s3_prefix}}"
+      [ -f "$local_file" ] && touch -d "${date} ${time} UTC" "$local_file"
+    done
+}
+
 if [ -n "${AWS_BUCKET:-}" ]; then
   echo "=== $(date) — Restoring GridMET cache from s3://${AWS_BUCKET}/cache/ ==="
   aws s3 sync "s3://${AWS_BUCKET}/cache/raw/"     "$DATA_DIR/raw/"     --no-progress || true
+  s3_restore_timestamps "${AWS_BUCKET}" "cache/raw/"     "$DATA_DIR/raw/"
   aws s3 sync "s3://${AWS_BUCKET}/cache/interim/" "$DATA_DIR/interim/" --no-progress || true
+  s3_restore_timestamps "${AWS_BUCKET}" "cache/interim/" "$DATA_DIR/interim/"
   echo "=== $(date) — Cache restore complete ==="
 fi
 
