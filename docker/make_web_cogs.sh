@@ -81,7 +81,7 @@ done
 
 # Copy timestamp metadata files
 for txt in "$SRC_DIR"/*_time.txt; do
-  [ -f "$txt" ] && cp "$txt" "$WEB_DIR/"
+  if [ -f "$txt" ]; then cp "$txt" "$WEB_DIR/"; fi
 done
 
 echo ""

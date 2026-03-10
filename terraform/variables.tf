@@ -103,7 +103,7 @@ variable "gridmet_refresh_years" {
 variable "start_year" {
   description = "Earliest year to download from GridMET (START_YEAR)"
   type        = number
-  default     = 1991
+  default     = 1979
 }
 
 variable "clim_periods" {

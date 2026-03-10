@@ -9,9 +9,8 @@
 # ---- roots -------------------------------------------------------------------
 project_root = Sys.getenv("PROJECT_DIR", unset = "~/mco-drought-conus")
 data_root    = Sys.getenv("DATA_DIR",    unset = "~/mco-drought-conus-data")
-interim_dir  = fs::path(data_root, "interim")
-base_gridmet = fs::path(interim_dir, "gridmet")
-invisible(fs::dir_create(c(interim_dir, base_gridmet)))
+raw_base     = fs::path(data_root, "raw")
+invisible(fs::dir_create(raw_base))
 
 # ---- path helpers ------------------------------------------------------------
 .abs = function(p) as.character(fs::path_abs(fs::path_expand(p)))
@@ -22,7 +21,7 @@ invisible(fs::dir_create(c(interim_dir, base_gridmet)))
 }
 
 .gridmet_dirs = function(var) {
-  raw_dir = fs::path(base_gridmet, var, "raw")
+  raw_dir = fs::path(raw_base, var)
   list(raw_dir = raw_dir)
 }
 

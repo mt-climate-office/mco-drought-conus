@@ -106,7 +106,7 @@ derived_dir = .abs_path(fs::path(data_root, "derived"))
 tiles_root  = .abs_path(fs::path(derived_dir, "eddi_metrics"))
 conus_root  = .abs_path(fs::path(derived_dir, "conus_drought"))
 
-raw_pet_dir = .abs_path(fs::path(interim_dir, "gridmet", "pet", "raw"))
+raw_pet_dir = .abs_path(fs::path(data_root, "raw", "pet"))
 
 # temp dirs
 r_temp     = .abs_path(Sys.getenv("R_TEMP_DIR",     unset = fs::path(data_root, "tmp", "R")))
