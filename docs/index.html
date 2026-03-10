@@ -16,7 +16,11 @@
   <!-- chroma.js -->
   <script src="https://unpkg.com/chroma-js@2.4.2/chroma.min.js"></script>
 
+  <!-- topojson -->
+  <script src="https://unpkg.com/topojson-client@3/dist/topojson-client.min.js"></script>
 
+  <!-- html2canvas (screenshot export) -->
+  <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
   <style>
     /* ── CSS custom properties ─────────────────────────────────── */
@@ -70,6 +74,23 @@
     #navbar .brand span {
       color: var(--accent);
     }
+
+    #mco-logo-link {
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+      text-decoration: none;
+    }
+
+    #mco-logo {
+      height: 34px;
+      width: 34px;
+      border-radius: 8px;
+      object-fit: cover;
+      transition: opacity 0.15s;
+    }
+
+    #mco-logo:hover { opacity: 0.8; }
 
     #hamburger {
       background: none;
@@ -326,6 +347,13 @@
     .period-btn:hover { background: #3a4a60; color: var(--sidebar-fg); }
     .period-btn.active { background: var(--pill-active); color: #fff; font-weight: 600; }
 
+    /* ── Basemap strip ──────────────────────────────────────────── */
+    #basemap-strip {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
     /* ── Opacity slider ─────────────────────────────────────────── */
     #opacity-row {
       display: flex;
@@ -482,6 +510,21 @@
     }
     #counties-row input { accent-color: var(--accent); cursor: pointer; }
 
+    /* ── County tooltip ──────────────────────────────────────────── */
+    .county-tooltip {
+      background: rgba(20,26,36,0.88);
+      border: none;
+      border-radius: 5px;
+      color: #e0e8f0;
+      font-size: 0.75rem;
+      padding: 4px 8px;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.4);
+    }
+    .county-tooltip::before { display: none; }
+    .hide-county-tooltips .county-tooltip { display: none !important; }
+    /* Suppress browser focus ring on click */
+    .leaflet-interactive:focus { outline: none; }
+
     /* ── Variable info ───────────────────────────────────────────── */
     #var-info-text {
       font-size: 0.78rem;
@@ -515,6 +558,133 @@
 
       #spinner { left: 0; }
     }
+
+    /* ── Streamflow legend ───────────────────────────────────────── */
+    #sf-legend {
+      position: absolute;
+      bottom: 30px;
+      right: 10px;
+      z-index: 900;
+      background: rgba(30,37,48,0.92);
+      color: #e8ecf0;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      min-width: 150px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    }
+    .sf-leg-title { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+    .sf-leg-period { font-size: 11px; color: #a0aab8; margin-bottom: 6px; }
+    .sf-leg-row { display: flex; align-items: center; gap: 7px; margin-bottom: 2px; }
+    .sf-swatch { width: 16px; height: 16px; border-radius: 2px; flex-shrink: 0; }
+
+    /* ── Station Data controls ───────────────────────────────────── */
+    #usgs-btn-row { margin-top: 4px; }
+
+    #usgs-btn {
+      width: 100%;
+      background: var(--pill-bg);
+      color: #aab4c0;
+      border: 1px solid #3a4558;
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 0.82rem;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #usgs-btn:hover {
+      background: #3a4a60;
+      color: var(--sidebar-fg);
+    }
+
+    #usgs-btn.is-on {
+      background: #1a2f50;
+      color: #60a5fa;
+      border-color: #2d5a9e;
+      box-shadow: inset 0 0 0 1px #2d5a9e;
+      font-weight: 600;
+    }
+
+/* ── HHP flow panel ──────────────────────────────────────────── */
+#flow-panel {
+  position: fixed;
+  top: 60px;
+  right: 10px;
+  width: 380px;
+  max-height: calc(100vh - 80px);
+  background: var(--sidebar-bg);
+  color: var(--sidebar-fg);
+  border: 1px solid #3a4558;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+  overflow-y: auto;
+  z-index: 1000;
+  display: none;
+}
+
+#flow-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid #3a4558;
+  position: sticky;
+  top: 0;
+  background: var(--sidebar-bg);
+}
+
+#flow-panel-title {
+  font-weight: 600;
+  font-size: 0.92rem;
+  line-height: 1.3;
+}
+
+#flow-panel-sub {
+  font-size: 0.78rem;
+  color: #9aabb8;
+  margin-top: 2px;
+}
+
+#flow-panel-close {
+  background: none;
+  border: none;
+  color: #6b7a90;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0 0 10px;
+  flex-shrink: 0;
+}
+
+#flow-panel-close:hover { color: var(--sidebar-fg); }
+
+#flow-panel-content {
+  padding: 10px;
+}
+
+#flow-panel-content img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 4px;
+}
+
+@media (max-width: 640px) {
+  #flow-panel {
+    top: auto;
+    bottom: 0;
+    right: 0;
+    left: 0;
+    width: 100%;
+    border-radius: 12px 12px 0 0;
+    max-height: 50vh;
+  }
+}
   </style>
 </head>
 <body>
@@ -522,6 +692,9 @@
 <!-- ── Navbar ─────────────────────────────────────────────────── -->
 <nav id="navbar">
   <button id="hamburger" onclick="toggleSidebar()" title="Toggle sidebar">&#9776;</button>
+  <a href="https://climate.umt.edu/" target="_blank" rel="noopener" id="mco-logo-link">
+    <img src="https://climate.umt.edu/assets/images/MCO_logo_icon_only.png" id="mco-logo" alt="MCO">
+  </a>
   <div class="brand"><span>MCO</span> Drought Dashboard</div>
   <button id="screenshot-btn" onclick="takeScreenshot()" title="Export map as PNG">
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -565,6 +738,9 @@
           </optgroup>
           <optgroup label="── Temperature ──">
             <option value="tmax_pctile">Maximum Temperature — Percentile</option>
+          </optgroup>
+          <optgroup label="── Streamflow Percentiles (ML-Model) ──">
+            <option value="hhp">HHP Streamflow Basins</option>
           </optgroup>
         </select>
 
@@ -628,6 +804,27 @@
         </label>
       </div>
 
+      <!-- Basemap -->
+      <div class="section-label" data-sec="sec-basemap">Basemap <span class="caret">&#9660;</span></div>
+      <div class="section-body" id="sec-basemap">
+        <div id="basemap-strip">
+          <button class="period-btn basemap-btn" data-basemap="light">Light</button>
+          <button class="period-btn basemap-btn" data-basemap="dark">Dark</button>
+          <button class="period-btn basemap-btn active" data-basemap="voyager">Voyager</button>
+          <button class="period-btn basemap-btn" data-basemap="satellite">Satellite</button>
+        </div>
+      </div>
+
+      <!-- Station Data -->
+      <div class="section-label" data-sec="sec-station">Station Data <span class="caret">&#9660;</span></div>
+      <div class="section-body" id="sec-station">
+        <div id="usgs-btn-row">
+          <button id="usgs-btn" type="button">
+            <span>Add Current USGS Percentiles</span>
+          </button>
+        </div>
+      </div>
+
     </div><!-- .sidebar-inner -->
   </div><!-- #sidebar -->
 
@@ -637,7 +834,36 @@
 </div><!-- #shell -->
 
 <!-- Spinner -->
-<div id="spinner"><div class="spin-ring"></div><div class="spin-label">Loading raster…</div></div>
+<div id="spinner"><div class="spin-ring"></div><div class="spin-label">Loading data…</div></div>
+
+<!-- Streamflow percentile legend -->
+<div id="sf-legend" style="display:none">
+  <div class="sf-leg-title">Streamflow Percentile</div>
+  <div class="sf-leg-period">Rolling 30-yr Climatology</div>
+  <div class="sf-leg-row"><span class="sf-swatch" style="background:#730000"></span>0–2%</div>
+  <div class="sf-leg-row"><span class="sf-swatch" style="background:#E60000"></span>2–5%</div>
+  <div class="sf-leg-row"><span class="sf-swatch" style="background:#FFAA00"></span>5–10%</div>
+  <div class="sf-leg-row"><span class="sf-swatch" style="background:#FCD37F"></span>10–20%</div>
+  <div class="sf-leg-row"><span class="sf-swatch" style="background:#FFFF00"></span>20–30%</div>
+  <div class="sf-leg-row"><span class="sf-swatch" style="background:#FFFFFF;border:1px solid #ccc"></span>30–70%</div>
+  <div class="sf-leg-row"><span class="sf-swatch" style="background:#82FCF9"></span>70–80%</div>
+  <div class="sf-leg-row"><span class="sf-swatch" style="background:#32E1FA"></span>80–90%</div>
+  <div class="sf-leg-row"><span class="sf-swatch" style="background:#325CFE"></span>90–95%</div>
+  <div class="sf-leg-row"><span class="sf-swatch" style="background:#4030E3"></span>95–98%</div>
+  <div class="sf-leg-row"><span class="sf-swatch" style="background:#303B83"></span>98–100%</div>
+</div>
+
+<!-- HHP basin flow panel -->
+<div id="flow-panel">
+  <div id="flow-panel-header">
+    <div>
+      <div id="flow-panel-title"></div>
+      <div id="flow-panel-sub"></div>
+    </div>
+    <button id="flow-panel-close">&times;</button>
+  </div>
+  <div id="flow-panel-content"></div>
+</div>
 
 <script>
 /* ════════════════════════════════════════════════════════════════
@@ -654,6 +880,23 @@ const USDM_BREAKS       = [-999, -2.0, -1.6, -1.3, -0.8, -0.5,  0.5,  0.8,  1.3,
 const BRBG_BREAKS_PON   = [-999, 5, 25, 50, 70, 90, 110, 130, 150, 200, 400, 999];
 const BRBG_BREAKS_PCTILE= [-999, 0.02, 0.05, 0.10, 0.20, 0.30, 0.70, 0.80, 0.90, 0.95, 0.98, 999];
 const RDBU_BREAKS       = [-999, 0.02, 0.05, 0.10, 0.20, 0.30, 0.70, 0.80, 0.90, 0.95, 0.98, 999];
+
+/* ── Streamflow percentile scale ─────────────────────────────── */
+const STREAMFLOW_BREAKS  = [0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.7, 0.8, 0.9, 0.95, 0.98, 1];
+const STREAMFLOW_COLORS  = [
+  "#730000","#E60000","#FFAA00","#FCD37F","#FFFF00","#FFFFFF",
+  "#82FCF9","#32E1FA","#325CFE","#4030E3","#303B83"
+];
+const streamflowScale = chroma.scale(STREAMFLOW_COLORS).classes(STREAMFLOW_BREAKS);
+
+const EXCLUDED_BASINS = [
+  "Great Salt Lake","Pyramid Lake","Walker Lake","Mono Lake",
+  "Carson Sink","Humboldt Sink","Summer Lake","Abert Lake",
+  "Klamath Lake","Medicine Lake","Great Divide Basin"
+];
+
+let hhpLayer = null, hhpLoaded = false;
+let usgsStreamLayer = null, usgsStreamLoaded = false;
 
 /* ── Hand-tuned default color arrays (11 colors each) ───────── */
 const USDM_COLORS = ["#730000","#E60000","#FFAA00","#FCD37F","#FFFF00","#FFFFFF",
@@ -714,6 +957,7 @@ const VAR_CONFIG = {
   vpd_dev:      { label: "VPD — Departure",                 prefix: "vpd_dev_",      paletteGroup: 'dyn_diverging',  defaultPalette: 'brbg',    reversed: true,  dynamic: true,  dynamicType: 'diverging',  description: "Vapor pressure deficit departure from the long-term normal. Positive values indicate anomalously high atmospheric dryness; negative values indicate anomalously moist atmospheric conditions." },
   vpd_pctile:   { label: "VPD — Percentile",                prefix: "vpd_pctile_",   paletteGroup: 'pctile',         defaultPalette: 'usdm',    reversed: true,  breaks: RDBU_BREAKS,         labelFmt: v => v.toFixed(2),   dynamic: false, description: "Vapor pressure deficit expressed as a percentile relative to the historical distribution. High percentiles indicate anomalously high evaporative demand and atmospheric dryness." },
   tmax_pctile:  { label: "Maximum Temperature — Percentile",prefix: "tmax_pctile_",  paletteGroup: 'pctile',         defaultPalette: 'usdm',    reversed: true,  breaks: RDBU_BREAKS,         labelFmt: v => v.toFixed(2),   dynamic: false, description: "Daily maximum temperature expressed as a percentile relative to the historical distribution. High percentiles indicate anomalously warm temperatures that can intensify drought conditions." },
+  hhp:          { label: "HHP Streamflow Basins",           prefix: null,            paletteGroup: null,             defaultPalette: null,      reversed: false, dynamic: false, noRaster: true, description: "Streamflow basin percentiles from the Headwaters Hydrology Project (HHP) machine-learning model, colored by percentile relative to a 30-year climatology." },
 };
 
 /* ── Scale builders ──────────────────────────────────────────── */
@@ -885,17 +1129,26 @@ const georasterCache = {};   // url → georaster, avoids re-fetching on palette
 const map = L.map("map", { zoomControl: false });
 L.control.zoom({ position: 'topright' }).addTo(map);
 
-L.tileLayer(
-  "https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png",
-  {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-    subdomains: "abcd",
-    maxZoom: 19,
-    crossOrigin: true   // required for canvas export
-  }
-).addTo(map);
+const BASEMAPS = {
+  light:     { url: "https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png",  opts: { subdomains: "abcd", maxZoom: 19, crossOrigin: true, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>' } },
+  dark:      { url: "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",   opts: { subdomains: "abcd", maxZoom: 19, crossOrigin: true, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>' } },
+  voyager:   { url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", opts: { subdomains: "abcd", maxZoom: 19, crossOrigin: true, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>' } },
+  satellite: { url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", opts: { maxZoom: 19, crossOrigin: true, attribution: '&copy; <a href="https://www.esri.com/">Esri</a>' } },
+};
+
+let baseTile = L.tileLayer(BASEMAPS.voyager.url, BASEMAPS.voyager.opts).addTo(map);
 
 map.fitBounds([[24, -126], [50, -66]]);
+
+const COUNTY_MIN_ZOOM = 6;
+function updateCountyTooltips() {
+  document.getElementById("map").classList.toggle(
+    "hide-county-tooltips",
+    map.getZoom() < COUNTY_MIN_ZOOM
+  );
+}
+map.on("zoomend", updateCountyTooltips);
+updateCountyTooltips();
 
 /* ════════════════════════════════════════════════════════════════
    TIMESCALE STRIP
@@ -916,6 +1169,9 @@ const TS_LABELS = { wy: "Water Year", ytd: "Year to Date" };
       activeTS = ts;
       loadLayer(activeVar, activeTS, activePeriod);
     });
+    btn.addEventListener("mouseenter", () => {
+      prefetch(activeVar, ts, activePeriod);
+    });
     strip.appendChild(btn);
   });
 })();
@@ -923,13 +1179,28 @@ const TS_LABELS = { wy: "Water Year", ytd: "Year to Date" };
 /* ════════════════════════════════════════════════════════════════
    PERIOD TOGGLE
    ════════════════════════════════════════════════════════════════ */
-document.querySelectorAll(".period-btn").forEach(btn => {
+document.querySelectorAll(".period-btn[data-period]").forEach(btn => {
   btn.addEventListener("click", () => {
     if (btn.dataset.period === activePeriod) return;
-    document.querySelectorAll(".period-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".period-btn[data-period]").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     activePeriod = btn.dataset.period;
     loadLayer(activeVar, activeTS, activePeriod);
+  });
+  btn.addEventListener("mouseenter", () => {
+    prefetch(activeVar, activeTS, btn.dataset.period);
+  });
+});
+
+document.querySelectorAll(".basemap-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (btn.classList.contains("active")) return;
+    document.querySelectorAll(".basemap-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    const bm = BASEMAPS[btn.dataset.basemap];
+    map.removeLayer(baseTile);
+    baseTile = L.tileLayer(bm.url, bm.opts).addTo(map);
+    baseTile.bringToBack();
   });
 });
 
@@ -937,13 +1208,52 @@ document.querySelectorAll(".period-btn").forEach(btn => {
    VARIABLE SELECT
    ════════════════════════════════════════════════════════════════ */
 document.getElementById("var-select").addEventListener("change", function() {
+  // If switching away from HHP, remove the vector layer
+  if (hhpLayer && map.hasLayer(hhpLayer)) {
+    map.removeLayer(hhpLayer);
+    const usgsOn = usgsStreamLayer && map.hasLayer(usgsStreamLayer);
+    if (!usgsOn) document.getElementById("sf-legend").style.display = "none";
+  }
+
   activeVar = this.value;
-  // Clear custom range on variable change
   document.getElementById("range-min").value = "";
   document.getElementById("range-max").value = "";
   updateRangeSection(activeVar, null);
   updateVarInfo(activeVar);
+
+  const tsLabel = document.querySelector(".section-label[data-sec='sec-timescale']");
+  const tsBody  = document.getElementById("sec-timescale");
+
+  if (activeVar === "hhp") {
+    // Hide timescale section for HHP
+    tsLabel.style.display = "none";
+    tsBody.style.display  = "none";
+    // Remove any active raster layer; load HHP vector layer
+    if (activeLayer) { map.removeLayer(activeLayer); activeLayer = null; }
+    (async () => {
+      if (!hhpLoaded) {
+        document.getElementById("spinner").style.display = "flex";
+        try { await loadHhpStreamflow(); } finally { document.getElementById("spinner").style.display = "none"; }
+      }
+      hhpLayer.addTo(map);
+      if (statesLayer) statesLayer.bringToFront();
+      if (countiesLayer && map.hasLayer(countiesLayer)) countiesLayer.bringToFront();
+      document.getElementById("sf-legend").style.display = "block";
+    })();
+    return;
+  }
+
+  // Restore timescale section for all other variables
+  tsLabel.style.display = "";
+  tsBody.style.display  = "";
+
   loadLayer(activeVar, activeTS, activePeriod);
+});
+
+document.getElementById("var-select").addEventListener("mouseover", function(e) {
+  if (e.target.tagName === "OPTION") {
+    prefetch(e.target.value, activeTS, activePeriod);
+  }
 });
 
 /* ════════════════════════════════════════════════════════════════
@@ -955,7 +1265,11 @@ const opacityVal    = document.getElementById("opacity-val");
 opacitySlider.addEventListener("input", function() {
   const v = parseFloat(this.value);
   opacityVal.textContent = v.toFixed(2);
-  if (activeLayer) activeLayer.setOpacity(v);
+  if (activeVar === "hhp" && hhpLayer) {
+    hhpLayer.setStyle({ fillOpacity: v });
+  } else if (activeLayer) {
+    activeLayer.setOpacity(v);
+  }
 });
 
 /* ════════════════════════════════════════════════════════════════
@@ -995,13 +1309,30 @@ document.getElementById("states-chk").addEventListener("change", function() {
 let countiesLayer = null;
 
 async function loadCounties() {
-  const url = "https://data.climate.umt.edu/share/dashboard_misc/counties.geojson";
+  const topoUrl  = "https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json";
+  const namesUrl = "https://api.census.gov/data/2019/acs/acs5?get=NAME&for=county:*";
   try {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const geojson = await resp.json();
+    const [topoResp, namesResp] = await Promise.all([fetch(topoUrl), fetch(namesUrl)]);
+    if (!topoResp.ok)  throw new Error(`Topo HTTP ${topoResp.status}`);
+    if (!namesResp.ok) throw new Error(`Names HTTP ${namesResp.status}`);
+
+    const topo      = await topoResp.json();
+    const namesData = await namesResp.json();
+
+    // Build FIPS → "County Name, State" lookup (skip header row)
+    const fipsToName = {};
+    for (let i = 1; i < namesData.length; i++) {
+      const [name, state, county] = namesData[i];
+      fipsToName[state + county] = name;
+    }
+
+    const geojson = topojson.feature(topo, topo.objects.counties);
     countiesLayer = L.geoJSON(geojson, {
-      style: { color: "#667", weight: 0.6, fill: false, opacity: 0.35 }
+      style: { color: "#667", weight: 0.6, fillOpacity: 0, opacity: 0.35 },
+      onEachFeature: function(feature, layer) {
+        const name = fipsToName[feature.id] || `FIPS ${feature.id}`;
+        layer.bindTooltip(name, { sticky: true, className: "county-tooltip" });
+      }
     });
   } catch(e) {
     console.warn("County boundary load failed:", e);
@@ -1012,6 +1343,88 @@ document.getElementById("counties-chk").addEventListener("change", function() {
   if (!countiesLayer) return;
   if (this.checked) { countiesLayer.addTo(map); if (statesLayer) statesLayer.bringToFront(); }
   else              map.removeLayer(countiesLayer);
+});
+
+/* ════════════════════════════════════════════════════════════════
+   HHP STREAMFLOW OVERLAY
+   ════════════════════════════════════════════════════════════════ */
+async function loadHhpStreamflow() {
+  const resp = await fetch("https://data.climate.umt.edu/share/current_flow_percentile.geojson");
+  const data = await resp.json();
+  const features = data.features.filter(f => !EXCLUDED_BASINS.includes(f.properties?.basin_name?.trim()));
+  hhpLayer = L.geoJson({ type: "FeatureCollection", features }, {
+    style: f => ({
+      fillColor: streamflowScale(f.properties.ft3_s_ecdf).hex(),
+      weight: 0.4,
+      opacity: 0.6,
+      color: "#333",
+      fillOpacity: parseFloat(opacitySlider.value)
+    }),
+    onEachFeature: (f, layer) => {
+      const name = f.properties.basin_name;
+      const v = f.properties.ft3_s_ecdf;
+      let tip;
+      if (v <= 0)      tip = `${name}: Daily 30-yr Minimum`;
+      else if (v >= 1) tip = `${name}: Daily 30-yr Maximum`;
+      else {
+        const p = Math.round(v * 100);
+        const sfx = (p%100>=11&&p%100<=13)?'th':(p%10===1)?'st':(p%10===2)?'nd':(p%10===3)?'rd':'th';
+        tip = `${name}: ${p}${sfx} percentile`;
+      }
+      layer.bindTooltip(tip, { direction: "auto", sticky: false });
+      layer.on("click", function () { showFlowPanel(f); });
+    }
+  });
+  hhpLoaded = true;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   USGS STREAMFLOW OVERLAY
+   ════════════════════════════════════════════════════════════════ */
+async function loadUsgsStreamflow() {
+  const resp = await fetch("https://data.climate.umt.edu/share/operational-usgs/usgs_current_percentiles.geojson");
+  const data = await resp.json();
+  usgsStreamLayer = L.geoJson(data, {
+    pointToLayer: (f, latlng) => L.circleMarker(latlng, {
+      radius: 4.5,
+      fillColor: f.properties?.fillColor || "#000",
+      color: "#000",
+      weight: 0.8,
+      opacity: 1,
+      fillOpacity: 0.9
+    }),
+    onEachFeature: (f, layer) => {
+      const p = f.properties || {};
+      const raw = p.value;
+      const pct = typeof raw === "number" ? `${Math.round(raw)}%` : "";
+      layer.bindTooltip(`${p.STANAME || "USGS gage"}${p.STAID ? " ("+p.STAID+")" : ""}: ${pct}`,
+        { direction: "auto", sticky: true });
+    }
+  });
+  usgsStreamLoaded = true;
+}
+
+/* ── USGS gauge button ───────────────────────────────────────── */
+document.getElementById("usgs-btn").addEventListener("click", async function () {
+  const isOn = usgsStreamLayer && map.hasLayer(usgsStreamLayer);
+
+  if (isOn) {
+    map.removeLayer(usgsStreamLayer);
+    this.querySelector("span").textContent = "Add Current USGS Percentiles";
+    this.classList.remove("is-on");
+    const sfOn = document.getElementById("var-select").value === "hhp";
+    if (!sfOn) document.getElementById("sf-legend").style.display = "none";
+    return;
+  }
+
+  if (!usgsStreamLoaded) {
+    document.getElementById("spinner").style.display = "flex";
+    try { await loadUsgsStreamflow(); } finally { document.getElementById("spinner").style.display = "none"; }
+  }
+  usgsStreamLayer.addTo(map);
+  this.querySelector("span").textContent = "Remove Current USGS Percentiles";
+  this.classList.add("is-on");
+  document.getElementById("sf-legend").style.display = "block";
 });
 
 /* ════════════════════════════════════════════════════════════════
@@ -1100,10 +1513,26 @@ function renderLayer(georaster, varKey, ts, period, paletteKey, rangeOverride) {
 }
 
 /* ════════════════════════════════════════════════════════════════
+   PREFETCH  (fire-and-forget cache warming)
+   ════════════════════════════════════════════════════════════════ */
+function prefetch(varKey, ts, period) {
+  const cfg = VAR_CONFIG[varKey];
+  if (!cfg || cfg.noRaster) return;
+  const url = `${BASE_URL}/${cfg.prefix}${ts}_${period}.tif`;
+  if (georasterCache[url]) return;
+  fetch(url)
+    .then(r => r.ok ? r.arrayBuffer() : Promise.reject())
+    .then(buf => parseGeoraster(buf))
+    .then(gr => { georasterCache[url] = gr; })
+    .catch(() => {});
+}
+
+/* ════════════════════════════════════════════════════════════════
    LOAD LAYER  (fetches if not cached, then renders)
    ════════════════════════════════════════════════════════════════ */
 function loadLayer(varKey, ts, period) {
   const cfg = VAR_CONFIG[varKey];
+  if (cfg.noRaster) return;
   const url = `${BASE_URL}/${cfg.prefix}${ts}_${period}.tif`;
 
   if (georasterCache[url]) {
@@ -1114,7 +1543,8 @@ function loadLayer(varKey, ts, period) {
     return;
   }
 
-  if (activeLayer) { map.removeLayer(activeLayer); activeLayer = null; }
+  const prevLayer = activeLayer;
+  activeLayer = null;
   showSpinner();
 
   fetch(url)
@@ -1126,12 +1556,20 @@ function loadLayer(varKey, ts, period) {
     .then(georaster => {
       georasterCache[url] = georaster;
       updateRangeSection(varKey, georaster);
+      if (prevLayer) { map.removeLayer(prevLayer); }
       renderLayer(georaster, varKey, ts, period, VAR_CONFIG[varKey].defaultPalette,
         getRangeOverride() || (VAR_CONFIG[varKey].dynamic ? getVisibleRange(georaster) : null));
       hideSpinner();
       fetchDate(varKey, ts, period);
+      const idle = window.requestIdleCallback || (cb => setTimeout(cb, 200));
+      const idx = TIMESCALES.indexOf(ts);
+      [-1, 1].forEach(offset => {
+        const neighborTS = TIMESCALES[idx + offset];
+        if (neighborTS) idle(() => prefetch(varKey, neighborTS, period));
+      });
     })
     .catch(err => {
+      if (prevLayer) { map.removeLayer(prevLayer); }
       hideSpinner();
       console.error("Layer load error:", err);
       activeDate = "Load error";
@@ -1255,8 +1693,15 @@ function renderRasterDirect(georaster, scaleFn, opacity, outW, outH) {
   const band = values[0];
   const alpha = Math.round(opacity * 255);
 
+  // Precompute Mercator Y bounds so the per-pixel lat uses the same
+  // projection as the CartoDB basemap and all vector layers.
+  const toMercY = deg => Math.log(Math.tan(Math.PI / 4 + (deg * Math.PI) / 360));
+  const mercN = toMercY(mapN);
+  const mercS = toMercY(mapS);
+
   for (let py = 0; py < outH; py++) {
-    const lat = mapN - (mapN - mapS) * py / outH;
+    const mercY = mercN + (mercS - mercN) * py / outH;
+    const lat   = (2 * Math.atan(Math.exp(mercY)) - Math.PI / 2) * (180 / Math.PI);
     for (let px = 0; px < outW; px++) {
       const lng = mapW + (mapE - mapW) * px / outW;
 
@@ -1441,6 +1886,37 @@ async function takeScreenshot() {
 }
 
 /* ════════════════════════════════════════════════════════════════
+   HHP FLOW PANEL
+   ════════════════════════════════════════════════════════════════ */
+function showFlowPanel(f) {
+  const props = f.properties;
+  const basinId = props.basin_id;
+  const name = props.basin_name;
+  const v = props.ft3_s_ecdf;
+  let pctLabel;
+  if (v <= 0)      pctLabel = "Daily 30-yr Minimum";
+  else if (v >= 1) pctLabel = "Daily 30-yr Maximum";
+  else {
+    const p = Math.round(v * 100);
+    const sfx = (p%100>=11&&p%100<=13)?'th':(p%10===1)?'st':(p%10===2)?'nd':(p%10===3)?'rd':'th';
+    pctLabel = `${p}${sfx} percentile`;
+  }
+  document.getElementById("flow-panel-title").textContent = name;
+  document.getElementById("flow-panel-sub").textContent = pctLabel;
+  const content = document.getElementById("flow-panel-content");
+  content.innerHTML = "";
+  const img = document.createElement("img");
+  img.src = `https://data.climate.umt.edu/share/operational-plots/current_climatology_plot_${basinId}.png?cacheBust=${Date.now()}`;
+  img.alt = "Current flow plot";
+  content.appendChild(img);
+  document.getElementById("flow-panel").style.display = "block";
+}
+
+document.getElementById("flow-panel-close").addEventListener("click", function () {
+  document.getElementById("flow-panel").style.display = "none";
+});
+
+/* ════════════════════════════════════════════════════════════════
    INIT
    ════════════════════════════════════════════════════════════════ */
 initCollapsibles();
@@ -1450,5 +1926,6 @@ updateRangeSection(activeVar, null);
 updateVarInfo(activeVar);
 loadLayer(activeVar, activeTS, activePeriod);
 </script>
+
 </body>
 </html>
