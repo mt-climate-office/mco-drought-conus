@@ -562,14 +562,13 @@ mosaic_period_dir = function(period_dir_name, last_date_iso, keep_tiles = FALSE)
   tifs = fs::dir_ls(tile_dir, glob = "*.tif", type = "file")
   if (length(tifs) == 0) return(FALSE)
 
-  out_tif = fs::path(conus_root, paste0(period_dir_name, ".tif"))
+  out_tif = fs::path(conus_root, paste0(period_dir_name, "_", last_date_iso, ".tif"))
   message("Mosaicking ", length(tifs), " tiles for ", period_dir_name)
 
   ok = FALSE
   try({ ok = .mosaic_vrt_to_cog(tifs, out_tif) }, silent = FALSE)
   if (!isTRUE(ok)) return(FALSE)
 
-  readr::write_lines(last_date_iso, fs::path(conus_root, paste0(period_dir_name, "_time.txt")))
   if (!keep_tiles) try(fs::dir_delete(tile_dir), silent = TRUE)
 
   message("Wrote mosaic: ", out_tif)
