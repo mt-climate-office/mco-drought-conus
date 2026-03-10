@@ -32,7 +32,7 @@ Scripts run sequentially inside the container via `run_once.sh`:
 1_gridmet-cache.R          Download / refresh raw GridMET NetCDF files
         |
         v
-2_precipitation-metrics.R  SPI, % of normal, deviation, percentile
+2_metrics-precip.R         SPI, % of normal, deviation, percentile
         |
         v
 3_metrics-spei.R           SPEI
@@ -57,7 +57,7 @@ All outputs land in `$DATA_DIR/derived/conus_drought/` as COG GeoTIFFs.
 mco-drought-conus/
 ├── R/
 │   ├── 1_gridmet-cache.R
-│   ├── 2_precipitation-metrics.R
+│   ├── 2_metrics-precip.R
 │   ├── 3_metrics-spei.R
 │   ├── 4_metrics-eddi.R
 │   ├── 5_metrics-vpd.R
@@ -398,7 +398,7 @@ export CORES=4
 bash docker/run_once.sh   # full pipeline
 
 # or run individual scripts:
-Rscript R/2_precipitation-metrics.R
+Rscript R/2_metrics-precip.R
 Rscript R/3_metrics-spei.R
 # etc.
 ```

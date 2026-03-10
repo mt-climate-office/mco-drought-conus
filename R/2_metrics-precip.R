@@ -1,5 +1,5 @@
 ##############################################################
-# File: R/2_precipitation-metrics.R
+# File: R/2_metrics-precip.R
 # Title: Precip metrics (CONUS, tiled, parallel<=12) from local GridMET raws:
 #        SPI (gamma), % of normal, deviation from normal, percentile.
 #        30-year calendar reference; per-tile GeoTIFF/COG; VRT->COG mosaics.
@@ -70,6 +70,18 @@ suppressPackageStartupMessages({
   }
   try(unlink(src), silent = TRUE)
   invisible(TRUE)
+}
+
+# Return TRUE if any raw input is newer than the oldest existing output
+# (or if no outputs exist yet), i.e. a re-run is needed.
+.raw_newer_than_outputs = function(raw_files, output_dir, output_regexp) {
+  raw_mtime = max(fs::file_info(as.character(raw_files))$modification_time, na.rm = TRUE)
+  out_files = if (fs::dir_exists(output_dir))
+    fs::dir_ls(output_dir, regexp = output_regexp, type = "file")
+  else character(0)
+  if (!length(out_files)) return(TRUE)
+  out_mtime = min(fs::file_info(as.character(out_files))$modification_time, na.rm = TRUE)
+  raw_mtime > out_mtime
 }
 
 # Quick check for "all nodata / all NA" — samples to avoid full scans
@@ -674,6 +686,12 @@ run_precip_metrics = function() {
 
   # Discover files + dates (metadata only — no raster data loaded in main process)
   pr_files      = .list_raw_pr_files(raw_pr_dir)
+
+  if (!.raw_newer_than_outputs(pr_files, conus_root, "spi_.*\\.tif$")) {
+    message(Sys.time(), " — PR outputs are up to date; skipping precipitation metrics run.")
+    return(invisible(FALSE))
+  }
+
   date_info     = collect_all_dates(pr_files)
   dates         = date_info$dates
   last_date_iso = format(max(dates, na.rm = TRUE))

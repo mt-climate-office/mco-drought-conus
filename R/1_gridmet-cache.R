@@ -1,6 +1,6 @@
 ##############################################################
 # File: R/1_gridmet-cache.R
-# Title: GridMET local cache (delete + refresh last N annual raws; NO merge)
+# Title: GridMET local cache (timestamp-conditional refresh; NO merge)
 # Author: Dr. Zachary H. Hoylman
 # Date: 3-4-2026
 # Conventions: "=", |> , explicit pkg::fun namespaces.
@@ -68,22 +68,23 @@ invisible(fs::dir_create(c(interim_dir, base_gridmet)))
   invisible(TRUE)
 }
 
-# ---- download raw annuals (idempotent per year) ------------------------------
-gridmet_download_year = function(var, year, overwrite = FALSE) {
+# ---- download raw annuals (timestamp-conditional) ----------------------------
+# Uses curl -R (preserve server Last-Modified as local mtime) and
+# -z <file> (skip download if remote is not newer than local file).
+gridmet_download_year = function(var, year) {
   dirs = .gridmet_dirs(var)
   fs::dir_create(dirs$raw_dir)
 
   url = .gridmet_url_for_year(var, year)
   out = .gridmet_year_nc(var, year)
 
-  if (fs::file_exists(out) && !overwrite && fs::file_info(out)$size > 0) {
-    message("Exists: ", fs::path_expand(out))
-    return(invisible(out))
-  }
+  # -R: set local mtime to server Last-Modified
+  # -z: send If-Modified-Since; skip download if remote is not newer
+  extra = if (fs::file_exists(out)) c("-R", "-z", shQuote(out)) else "-R"
 
-  message("Downloading ", var, " ", year)
+  message("Checking ", var, " ", year)
   .retry(3, 3, {
-    utils::download.file(url, out, mode = "wb", quiet = TRUE)
+    utils::download.file(url, out, method = "curl", extra = extra, mode = "wb", quiet = TRUE)
     out
   })
 
@@ -94,65 +95,33 @@ gridmet_download_year = function(var, year, overwrite = FALSE) {
   invisible(out)
 }
 
-gridmet_download_range = function(var, start_year, end_year = as.integer(format(Sys.Date(), "%Y"))) {
-  for (yy in seq.int(start_year, end_year)) gridmet_download_year(var, yy)
-  invisible(TRUE)
-}
+# ---- refresh all raw annuals (NO merge) --------------------------------------
+# Loops over every year from start_year to the current year.
+# Each file is only re-downloaded if the remote copy is newer (via curl -z).
+gridmet_refresh_raw = function(var, start_year = 1979) {
+  cy  = as.integer(format(Sys.Date(), "%Y"))
+  yrs = seq.int(start_year, cy)
 
-# ---- refresh last N raw annuals (NO merge) -----------------------------------
-# Behavior:
-#   - Identifies the last n_refresh_years: [cy - n_refresh_years + 1, cy]
-#   - Deletes those annual raws if present
-#   - Re-downloads those same years
-#   - Runs a duplicate-time sanity check on just those refreshed years
-gridmet_refresh_last_years_raw = function(
-    var,
-    start_year      = 1991,
-    n_refresh_years = 2
-) {
-  cy = as.integer(format(Sys.Date(), "%Y"))
-  y0 = max(start_year, cy - n_refresh_years + 1L)
-  yrs_refresh = seq.int(y0, cy)
+  message("Syncing ", var, " ", start_year, "-", cy)
+  fs::dir_create(.gridmet_dirs(var)$raw_dir)
 
-  message("Refreshing last ", n_refresh_years, " year(s) for ", var, ": ",
-          paste(yrs_refresh, collapse = ", "))
+  for (yy in yrs) gridmet_download_year(var, yy)
 
-  # ensure raw dir exists
-  dirs = .gridmet_dirs(var)
-  fs::dir_create(dirs$raw_dir)
-
-  # delete + re-download just the last N years
-  for (yy in yrs_refresh) {
-    f = .gridmet_year_nc(var, yy)
-    if (fs::file_exists(f)) {
-      message("Deleting raw: ", fs::path_expand(f))
-      fs::file_delete(f)
-    }
-    gridmet_download_year(var, yy, overwrite = TRUE)
-  }
-
-  # sanity check on refreshed years only
-  files = vapply(yrs_refresh, function(yy) .gridmet_year_nc(var, yy), character(1))
-  files = files[fs::file_exists(files)]
-  .assert_no_duplicate_times_raw(files)
-
+  files = vapply(yrs, function(yy) .gridmet_year_nc(var, yy), character(1))
+  .assert_no_duplicate_times_raw(files[fs::file_exists(files)])
   invisible(TRUE)
 }
 
 gridmet_refresh_pr_pet_vpd_tmmx_raw = function(
-    start_year      = as.integer(Sys.getenv("START_YEAR", "1991")),
-    n_refresh_years = as.integer(Sys.getenv("GRIDMET_REFRESH_YEARS", "2"))
+    start_year = as.integer(Sys.getenv("START_YEAR", "1979"))
 ) {
-  gridmet_refresh_last_years_raw("pr",   start_year = start_year, n_refresh_years = n_refresh_years)
-  gridmet_refresh_last_years_raw("pet",  start_year = start_year, n_refresh_years = n_refresh_years)
-  gridmet_refresh_last_years_raw("vpd",  start_year = start_year, n_refresh_years = n_refresh_years)
-  gridmet_refresh_last_years_raw("tmmx", start_year = start_year, n_refresh_years = n_refresh_years)
+  for (v in c("pr", "pet", "vpd", "tmmx")) gridmet_refresh_raw(v, start_year = start_year)
   invisible(TRUE)
 }
 
 # ---- auto-run (optional) -----------------------------------------------------
 if (sys.nframe() == 0) {
-  message(Sys.time(), " — GridMET refresh (PR + PET + VPD + TMMX): delete + re-download last N years (NO merge)")
+  message(Sys.time(), " — GridMET sync (PR + PET + VPD + TMMX): timestamp-conditional refresh")
   gridmet_refresh_pr_pet_vpd_tmmx_raw()
-  message(Sys.time(), " — GridMET refresh complete")
+  message(Sys.time(), " — GridMET sync complete")
 }
