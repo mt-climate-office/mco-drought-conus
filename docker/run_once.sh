@@ -84,7 +84,7 @@ message("Phase 2 complete. GridMET cache ready.")
 RS
 
 echo "=== $(date) — Running precipitation metrics ==="
-Rscript "$PROJECT_DIR/R/2_precipitation-metrics.R"
+Rscript "$PROJECT_DIR/R/2_metrics-precip.R"
 
 echo "=== $(date) — Running SPEI metrics ==="
 Rscript "$PROJECT_DIR/R/3_metrics-spei.R"

@@ -71,6 +71,18 @@ suppressPackageStartupMessages({
   invisible(TRUE)
 }
 
+# Return TRUE if any raw input is newer than the oldest existing output
+# (or if no outputs exist yet), i.e. a re-run is needed.
+.raw_newer_than_outputs = function(raw_files, output_dir, output_regexp) {
+  raw_mtime = max(fs::file_info(as.character(raw_files))$modification_time, na.rm = TRUE)
+  out_files = if (fs::dir_exists(output_dir))
+    fs::dir_ls(output_dir, regexp = output_regexp, type = "file")
+  else character(0)
+  if (!length(out_files)) return(TRUE)
+  out_mtime = min(fs::file_info(as.character(out_files))$modification_time, na.rm = TRUE)
+  raw_mtime > out_mtime
+}
+
 # Quick check for "all nodata / all NA" — samples to avoid full scans
 .has_any_data = function(r) {
   if (is.null(r)) return(FALSE)
@@ -618,6 +630,11 @@ run_tmax_metrics = function() {
 
   # Discover files + dates (metadata only — no raster data loaded in main process)
   tmmx_files    = .list_raw_tmmx_files(raw_tmmx_dir)
+
+  if (!.raw_newer_than_outputs(tmmx_files, conus_root, "tmax_.*\\.tif$")) {
+    message(Sys.time(), " — TMAX outputs are up to date; skipping tmax metrics run.")
+    return(invisible(FALSE))
+  }
   date_info     = collect_all_dates(tmmx_files)
   dates         = date_info$dates
   last_date_iso = format(max(dates, na.rm = TRUE))
