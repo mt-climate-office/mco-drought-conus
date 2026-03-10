@@ -144,21 +144,17 @@ Adjust the `volumes` block in `docker-compose.yml` if your data directory lives 
 `run_once.sh` creates it (and all subdirectories) before downloading anything.
 
 **`docker compose up` is the same command every time**, including the very first run. The
-GridMET download step runs in two phases on every invocation:
+GridMET sync step loops over every year from `START_YEAR` (default 1979) to the current year
+for all four variables, using `curl -R -z` to perform conditional downloads:
 
-1. **Historical fill** — downloads any year files missing from disk (skips existing files).
-   On a cold start this pulls the full record from `START_YEAR` (default 1991) to present:
-   4 variables × ~35 annual NetCDF files (~140 files, each 50–200 MB). Expect several hours
-   on a first run; on subsequent runs this phase completes almost instantly because the files
-   already exist.
-
-2. **Recent refresh** — always deletes and re-downloads the last `GRIDMET_REFRESH_YEARS`
-   years (default: 2) for every variable, regardless of whether those files are already
-   present. This ensures preliminary/updated GridMET data is replaced on every run.
-
-Because the two phases are separate, a partial cache (e.g. `pr` and `pet` already downloaded
-but `vpd` and `tmmx` not yet) is handled correctly — phase 1 fills in only what is missing,
-and phase 2 refreshes the recent years for all variables.
+- If a file does not exist locally it is downloaded and its mtime is set to the server's
+  `Last-Modified` timestamp.
+- If a file already exists, curl sends `If-Modified-Since` and skips the download if the
+  server copy has not changed — so subsequent runs complete almost instantly for unchanged
+  years.
+- If the server has updated a file (e.g. preliminary data replaced by final data), curl
+  re-downloads it and updates the local mtime accordingly, which automatically triggers
+  re-computation of any downstream metrics that depend on it.
 
 ---
 
@@ -174,8 +170,7 @@ Override any of these in `docker-compose.yml` under `environment:`, or pass them
 | `CONUS_MASK` | `1` | Apply CONUS land mask to outputs (`0` = no mask) |
 | `TILE_DX` | `2` | Tile width in degrees |
 | `TILE_DY` | `2` | Tile height in degrees |
-| `GRIDMET_REFRESH_YEARS` | `2` | Number of most-recent years to force-delete and re-download on every run |
-| `START_YEAR` | `1991` | Earliest year to include in the historical fill (phase 1) |
+| `START_YEAR` | `1979` | Earliest year to include in the GridMET sync |
 | `DATA_DIR` | `~/mco-drought-conus-data` | Root directory for raw, interim, and derived data |
 | `CLIM_PERIODS` | `rolling:30` | Comma-separated climatological reference period specs (see below) |
 
