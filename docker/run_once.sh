@@ -2,7 +2,6 @@
 set -euo pipefail
 PIPELINE_START=$SECONDS
 
-export HOME=/home/rstudio
 export PROJECT_DIR="${PROJECT_DIR:-$HOME/mco-drought-conus}"
 export DATA_DIR="${DATA_DIR:-$HOME/mco-drought-conus-data}"
 
