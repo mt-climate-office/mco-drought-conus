@@ -202,10 +202,10 @@ parse_clim_periods = function(env_val = "rolling:30") {
     switch(mode,
       rolling = list(mode="rolling", years=as.integer(parts[2]),
                      start=NA_integer_, end=NA_integer_,
-                     slug=paste0("rolling_", parts[2])),
+                     slug=paste0("rolling-", parts[2])),
       fixed   = list(mode="fixed",   years=NA_integer_,
                      start=as.integer(parts[2]), end=as.integer(parts[3]),
-                     slug=paste0("fixed_", parts[2], "_", parts[3])),
+                     slug=paste0("fixed-", parts[2], "-", parts[3])),
       full    = list(mode="full",    years=NA_integer_,
                      start=NA_integer_, end=NA_integer_, slug="full"),
       stop("Unknown CLIM_PERIODS mode: ", mode)
@@ -405,11 +405,11 @@ compute_metrics_from_matrix = function(vals, dates, base_r, periods_days = NULL,
     groups = groups_per_period[[p_i]]
     nm     = period_info$names[[p_i]]
 
-    spi_nm      = paste0("spi_",          nm)
-    pon_nm      = paste0("precip_pon_",   nm)
-    dev_nm      = paste0("precip_dev_",   nm)
-    pct_nm      = paste0("precip_pctile_",nm)
-    precip_in_nm = paste0("precip_in_",   nm)
+    spi_nm      = paste0("spi_",           nm)
+    pon_nm      = paste0("precip-pon_",   nm)
+    dev_nm      = paste0("precip-dev_",   nm)
+    pct_nm      = paste0("precip-pctile_",nm)
+    precip_in_nm = paste0("precip-in_",   nm)
 
     if (length(groups) < MIN_YEARS) {
       z = terra::setValues(base_r, NA_real_)
