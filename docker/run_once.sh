@@ -76,8 +76,9 @@ fi
 # Copy a local directory to a temp staging dir with _YYYY-MM-DD stripped from
 # .tif filenames, then sync the staging dir to S3 with --delete.
 # Non-.tif files (e.g. _time.txt) are copied unchanged.
+# Optional third argument: data date string written to latest-date.txt.
 s3_sync_dateless() {
-  local local_dir="$1" s3_dest="$2"
+  local local_dir="$1" s3_dest="$2" date_str="${3:-}"
   local stage
   stage="$(mktemp -d)"
   for f in "$local_dir"/*.tif; do
@@ -91,6 +92,9 @@ s3_sync_dateless() {
     [[ "$f" == *.tif ]] && continue
     cp "$f" "$stage/"
   done
+  if [ -n "$date_str" ]; then
+    echo "$date_str" > "$stage/latest-date.txt"
+  fi
   aws s3 sync "$stage/" "$s3_dest" --delete --no-progress || true
   rm -rf "$stage"
 }
@@ -100,9 +104,14 @@ s3_sync_dateless() {
 s3_sync_derived() {
   if [ -n "${AWS_BUCKET:-}" ]; then
     echo "=== $(date) — Syncing derived/conus_drought to S3 (latest/) ==="
+    local _date
+    _date=$(find "$DATA_DIR/derived/conus_drought/" -name "*.tif" 2>/dev/null \
+      | head -1 | xargs basename 2>/dev/null \
+      | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' || true)
     s3_sync_dateless \
       "$DATA_DIR/derived/conus_drought/" \
-      "s3://${AWS_BUCKET}/derived/conus_drought/latest/"
+      "s3://${AWS_BUCKET}/derived/conus_drought/latest/" \
+      "${_date:-}"
   fi
 }
 
@@ -206,7 +215,8 @@ if [ -n "${AWS_BUCKET:-}" ]; then
   # conus_drought — latest (dateless filenames; --delete removes stale files)
   s3_sync_dateless \
     "$DATA_DIR/derived/conus_drought/" \
-    "s3://${AWS_BUCKET}/derived/conus_drought/latest/"
+    "s3://${AWS_BUCKET}/derived/conus_drought/latest/" \
+    "$DATA_DATE"
 
   # conus_drought_web — date archive
   aws s3 sync \
@@ -217,7 +227,8 @@ if [ -n "${AWS_BUCKET:-}" ]; then
   # conus_drought_web — latest (dateless filenames)
   s3_sync_dateless \
     "$DATA_DIR/derived/conus_drought_web/" \
-    "s3://${AWS_BUCKET}/derived/conus_drought_web/latest/"
+    "s3://${AWS_BUCKET}/derived/conus_drought_web/latest/" \
+    "$DATA_DATE"
 
   echo "=== $(date) — S3 sync complete (date=${DATA_DATE}) ==="
 else
