@@ -8,13 +8,13 @@ const { StorageBrowser } = createStorageBrowser({
   config: {
     region: REGION,
 
-    // Expose only the derived/conus_drought/ prefix.
+    // Expose all of derived/conus_drought/ (latest/ and date-stamped archives).
     listLocations: async () => ({
       items: [{
         bucket: BUCKET,
-        id: `${BUCKET}/derived/conus_drought/latest/`,
+        id: `${BUCKET}/derived/conus_drought/`,
         permissions: ['get', 'list'],
-        prefix: 'derived/conus_drought/latest/',
+        prefix: 'derived/conus_drought/',
         type: 'PREFIX',
       }],
       nextToken: undefined,

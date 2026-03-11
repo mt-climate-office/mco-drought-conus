@@ -73,15 +73,36 @@ if [ -n "${AWS_BUCKET:-}" ]; then
   echo "=== $(date) — Cache restore complete ==="
 fi
 
+# Copy a local directory to a temp staging dir with _YYYY-MM-DD stripped from
+# .tif filenames, then sync the staging dir to S3 with --delete.
+# Non-.tif files (e.g. _time.txt) are copied unchanged.
+s3_sync_dateless() {
+  local local_dir="$1" s3_dest="$2"
+  local stage
+  stage="$(mktemp -d)"
+  for f in "$local_dir"/*.tif; do
+    [ -f "$f" ] || continue
+    base="$(basename "$f")"
+    dateless="$(echo "$base" | sed 's/_[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\.tif$/.tif/')"
+    cp "$f" "$stage/$dateless"
+  done
+  for f in "$local_dir"/*; do
+    [ -f "$f" ] || continue
+    [[ "$f" == *.tif ]] && continue
+    cp "$f" "$stage/"
+  done
+  aws s3 sync "$stage/" "$s3_dest" --delete --no-progress || true
+  rm -rf "$stage"
+}
+
 # Intermediate sync after each metric script — keeps latest/ current so a
 # failed run can resume without reprocessing completed datasets.
 s3_sync_derived() {
   if [ -n "${AWS_BUCKET:-}" ]; then
     echo "=== $(date) — Syncing derived/conus_drought to S3 (latest/) ==="
-    aws s3 sync \
+    s3_sync_dateless \
       "$DATA_DIR/derived/conus_drought/" \
-      "s3://${AWS_BUCKET}/derived/conus_drought/latest/" \
-      --no-progress || true
+      "s3://${AWS_BUCKET}/derived/conus_drought/latest/"
   fi
 }
 
@@ -182,12 +203,10 @@ if [ -n "${AWS_BUCKET:-}" ]; then
     "s3://${AWS_BUCKET}/derived/conus_drought/${DATA_DATE}/" \
     --no-progress
 
-  # conus_drought — latest (authoritative; --delete removes stale files)
-  aws s3 sync \
+  # conus_drought — latest (dateless filenames; --delete removes stale files)
+  s3_sync_dateless \
     "$DATA_DIR/derived/conus_drought/" \
-    "s3://${AWS_BUCKET}/derived/conus_drought/latest/" \
-    --delete \
-    --no-progress
+    "s3://${AWS_BUCKET}/derived/conus_drought/latest/"
 
   # conus_drought_web — date archive
   aws s3 sync \
@@ -195,12 +214,10 @@ if [ -n "${AWS_BUCKET:-}" ]; then
     "s3://${AWS_BUCKET}/derived/conus_drought_web/${DATA_DATE}/" \
     --no-progress
 
-  # conus_drought_web — latest
-  aws s3 sync \
+  # conus_drought_web — latest (dateless filenames)
+  s3_sync_dateless \
     "$DATA_DIR/derived/conus_drought_web/" \
-    "s3://${AWS_BUCKET}/derived/conus_drought_web/latest/" \
-    --delete \
-    --no-progress
+    "s3://${AWS_BUCKET}/derived/conus_drought_web/latest/"
 
   echo "=== $(date) — S3 sync complete (date=${DATA_DATE}) ==="
 else

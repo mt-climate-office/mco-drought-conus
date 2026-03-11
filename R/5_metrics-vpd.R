@@ -202,10 +202,10 @@ parse_clim_periods = function(env_val = "rolling:30") {
     switch(mode,
       rolling = list(mode="rolling", years=as.integer(parts[2]),
                      start=NA_integer_, end=NA_integer_,
-                     slug=paste0("rolling_", parts[2])),
+                     slug=paste0("rolling-", parts[2])),
       fixed   = list(mode="fixed",   years=NA_integer_,
                      start=as.integer(parts[2]), end=as.integer(parts[3]),
-                     slug=paste0("fixed_", parts[2], "_", parts[3])),
+                     slug=paste0("fixed-", parts[2], "-", parts[3])),
       full    = list(mode="full",    years=NA_integer_,
                      start=NA_integer_, end=NA_integer_, slug="full"),
       stop("Unknown CLIM_PERIODS mode: ", mode)
@@ -398,10 +398,10 @@ compute_vpd_metrics_from_matrix = function(vals, dates, base_r, periods_days = N
     groups = groups_per_period[[p_i]]
     nm     = period_info$names[[p_i]]
 
-    svpdi_nm = paste0("svpdi_",      nm)
-    pon_nm   = paste0("vpd_pon_",    nm)
-    dev_nm   = paste0("vpd_dev_",    nm)
-    pct_nm   = paste0("vpd_pctile_", nm)
+    svpdi_nm = paste0("svpdi_",       nm)
+    pon_nm   = paste0("vpd-pon_",    nm)
+    dev_nm   = paste0("vpd-dev_",    nm)
+    pct_nm   = paste0("vpd-pctile_", nm)
 
     if (length(groups) < MIN_YEARS) {
       z = terra::setValues(base_r, NA_real_)
