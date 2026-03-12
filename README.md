@@ -18,7 +18,11 @@ timescales, updated operationally via Docker.
 | **SPEI** | Standardized Precipitation-Evapotranspiration Index |
 | **EDDI** | Evaporative Demand Drought Index |
 | **SVPDI** | Standardized VPD Index (vapor pressure deficit) |
+| **VPD % of Normal** | VPD as percent of climatological normal |
+| **VPD Deviation** | VPD departure from normal (hPa) |
+| **VPD Percentile** | VPD percentile rank |
 | **Tmax Percentile** | Maximum temperature percentile rank |
+| **Tmax Deviation** | Maximum temperature departure from normal (°C) |
 
 **Timescales:** 15d, 30d, 45d, 60d, 90d, 120d, 180d, 365d, 730d, water year, year-to-date (YTD)
 
@@ -41,10 +45,10 @@ Scripts run sequentially inside the container via `run_once.sh`:
 4_metrics-eddi.R           EDDI
         |
         v
-5_metrics-vpd.R            SVPDI (VPD-based)
+5_metrics-vpd.R            SVPDI, % of normal, deviation, percentile
         |
         v
-6_metrics-tmax.R           Tmax percentile
+6_metrics-tmax.R           Tmax percentile, deviation from normal
 ```
 
 All outputs land in `$DATA_DIR/derived/conus_drought/` as COG GeoTIFFs.
@@ -62,11 +66,14 @@ mco-drought-conus/
 │   ├── 4_metrics-eddi.R
 │   ├── 5_metrics-vpd.R
 │   ├── 6_metrics-tmax.R
-│   └── drought-functions.R
+│   ├── drought-functions.R
+│   └── pipeline-common.R
 ├── docker/
 │   ├── Dockerfile
 │   ├── docker-compose.yml
-│   └── run_once.sh
+│   ├── run_once.sh
+│   ├── make_web_cogs.sh
+│   └── run_test.sh
 ├── scripts/
 │   └── ecr-push.sh            # Build and push Docker image to ECR
 ├── terraform/                 # AWS infrastructure (see Cloud Architecture below)
@@ -133,8 +140,8 @@ The container mounts two host directories:
 
 | Host path | Container path |
 |-----------|----------------|
-| `~/mco-drought-conus` | `/home/rstudio/mco-drought-conus` |
-| `~/mco-drought-conus-data` | `/home/rstudio/mco-drought-conus-data` |
+| `~/mco-drought-conus` | `/home/mco-drought/mco-drought-conus` |
+| `~/mco-drought-conus-data` | `/home/mco-drought/mco-drought-conus-data` |
 
 Adjust the `volumes` block in `docker-compose.yml` if your data directory lives elsewhere.
 
@@ -173,6 +180,8 @@ Override any of these in `docker-compose.yml` under `environment:`, or pass them
 | `START_YEAR` | `1979` | Earliest year to include in the GridMET sync |
 | `DATA_DIR` | `~/mco-drought-conus-data` | Root directory for raw, interim, and derived data |
 | `CLIM_PERIODS` | `rolling:30` | Comma-separated climatological reference period specs (see below) |
+| `TIMESCALES` | `15,30,45,60,90,120,180,365,730,wy,ytd` | Comma-separated list of aggregation timescales to compute |
+| `TILE_IDS` | (all) | Comma-separated tile IDs to process (subset for testing) |
 
 ### `CLIM_PERIODS` syntax
 
@@ -206,6 +215,31 @@ spi_30d_rolling_30.tif
 spi_30d_fixed_1991_2020.tif
 spei_15d_rolling_30.tif
 ```
+
+---
+
+## Quick Test
+
+A lightweight test script (`docker/run_test.sh`) runs a minimal subset of the pipeline for
+fast validation — useful for development, CI, or verifying a new Docker build.
+
+```bash
+# Local (outside Docker):
+bash docker/run_test.sh
+
+# Inside Docker:
+docker compose -f docker/docker-compose.yml run --rm mco-drought bash docker/run_test.sh
+
+# Test SPEI with specific timescales:
+METRIC=spei TIMESCALES=30,60,90 bash docker/run_test.sh
+
+# Test all metrics on a few tiles:
+METRIC=all TILE_IDS=30,31,32 bash docker/run_test.sh
+```
+
+Configurable via environment variables: `METRIC` (default: `precip`), `TIMESCALES` (default: `30`),
+`TILE_IDS` (default: `30,31,32`), `CORES` (default: `2`), `CLIM_PERIODS` (default: `rolling:30`).
+Set `SKIP_CACHE=1` to skip the GridMET download step if data already exists.
 
 ---
 
@@ -380,7 +414,7 @@ Raw climate data comes from **GridMET** (Northwest Knowledge Network, University
 - R 4.4+
 - System libraries: `gdal`, `netcdf`, `cdo`
 - R packages: `terra`, `ncdf4`, `sf`, `lmomco`, `fs`, `purrr`, `readr`, `tibble`,
-  `rnaturalearth`, `rnaturalearthhires`, `gdalUtilities`, `raster`
+  `rnaturalearth`, `rnaturalearthhires`, `gdalUtilities`, `raster`, `pbmcapply`
 
 Set the required environment variables, then run `docker/run_once.sh` or invoke each script
 individually. Data writes to `DATA_DIR` (outside the repo by default — not git-tracked):

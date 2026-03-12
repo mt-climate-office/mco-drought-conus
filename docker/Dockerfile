@@ -17,6 +17,9 @@ RUN R -q -e 'install.packages(c("fs","purrr","readr","tibble","rnaturalearth","g
 
 RUN R -q -e 'pak::pkg_install("ropensci/rnaturalearthhires")'
 
+# Create non-root user for running the pipeline
+RUN useradd -m -s /bin/bash mco-drought
+
 WORKDIR /opt/app
 
 # Bake R scripts into the image for Fargate (no volume mount available).
@@ -24,6 +27,7 @@ WORKDIR /opt/app
 COPY R/ /opt/app/R/
 COPY docker/run_once.sh /opt/app/run_once.sh
 COPY docker/make_web_cogs.sh /opt/app/docker/make_web_cogs.sh
-RUN chmod +x /opt/app/run_once.sh /opt/app/docker/make_web_cogs.sh
+COPY docker/run_test.sh /opt/app/docker/run_test.sh
+RUN chmod +x /opt/app/run_once.sh /opt/app/docker/make_web_cogs.sh /opt/app/docker/run_test.sh
 
 CMD ["/opt/app/run_once.sh"]
