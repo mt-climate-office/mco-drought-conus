@@ -5,9 +5,74 @@
 #the function also allows the user to return either the latest
 #CDF or SPI values when return_latest = T. when return_latest = F
 #the entire SPI or CDF vector is returned. Default is to return latest. 
-# ---- Strict gamma-based SPI (no fallback) ------------------------------------
+# ---- Gamma SPI following Stagge et al. (2015) --------------------------------
+# L-moment gamma SPI with proper zero handling via center-of-probability-mass
+# (Weibull plotting position) following Stagge et al. (2015).
+# Reference: https://rmets.onlinelibrary.wiley.com/doi/10.1002/joc.4267
+#
+# Zero precipitation methodology (Stagge et al. 2015, Eq. 2-4):
+#   p0      = n_zero / (n + 1)            — Weibull probability of zero
+#   p_bar_0 = (n_zero + 1) / (2*(n + 1))  — center of mass for zeros
+#   For x > 0: p = p0 + (1 - p0) * F(x, gamma_params)
+#   For x = 0: p = p_bar_0
+#   SPI = Phi^-1(p)
 
-gamma_fit_spi = function(x, export_opts = 'SPI', return_latest = T, climatology_length = 30) {
+gamma_fit_spi = function(x, export_opts = 'SPI', return_latest = TRUE,
+                         climatology_length = 30, zero_threshold = 0) {
+  library(lmomco)
+  tryCatch({
+    x = as.numeric(x)
+    x = tail(x, climatology_length)
+    n = length(x)
+    if (n < 3) return(NA)
+
+    # Identify zeros (threshold per Stagge et al.)
+    is_zero = (x <= zero_threshold)
+    n_zero  = sum(is_zero)
+
+    if (n_zero == n) {
+      # All zeros: center of mass -> SPI = 0 for all
+      spi = rep(0, n)
+      fit_cdf = rep(0.5, n)
+    } else {
+      x_pos = x[!is_zero]
+      if (length(x_pos) < 3 || stats::sd(x_pos) == 0) return(NA)
+
+      # L-moment gamma fit to non-zero values
+      pwm      = pwm.ub(x_pos)
+      lmom     = pwm2lmom(pwm)
+      fit.gam  = pargam(lmom)
+
+      # Weibull plotting positions (Eq. 2-3)
+      p0      = n_zero / (n + 1)
+      p_bar_0 = (n_zero + 1) / (2 * (n + 1))
+
+      # Build CDF (Eq. 4)
+      fit_cdf = numeric(n)
+      fit_cdf[is_zero]  = p_bar_0
+      fit_cdf[!is_zero] = p0 + (1 - p0) * cdfgam(x_pos, fit.gam)
+
+      # Transform to standard normal and clamp to [-3, 3]
+      spi = qnorm(fit_cdf)
+    }
+
+    if (return_latest) {
+      if (export_opts == 'CDF')    return(fit_cdf[n])
+      if (export_opts == 'params') return(list(fit = fit.gam,
+                                                p0 = n_zero / (n + 1)))
+      if (export_opts == 'SPI')    return(spi[n])
+    } else {
+      if (export_opts == 'CDF')    return(fit_cdf)
+      if (export_opts == 'params') return(list(fit = fit.gam,
+                                                p0 = n_zero / (n + 1)))
+      if (export_opts == 'SPI')    return(spi)
+    }
+  }, error = function(cond) return(NA))
+}
+
+# ---- Legacy gamma SPI (L-moments only, zeros -> 0.01mm) ---------------------
+
+gamma_fit_spi_legacy = function(x, export_opts = 'SPI', return_latest = T, climatology_length = 30) {
   #load the package needed for these computations
   library(lmomco)
   #first try gamma
@@ -62,28 +127,62 @@ gamma_fit_spi = function(x, export_opts = 'SPI', return_latest = T, climatology_
 }
 
 
-gamma_fit_vpdi = function(x, export_opts = 'SVPDI', return_latest = T, climatology_length = 30) {
+# ---- Gamma SVPDI following Stagge et al. (2015) zero handling ----------------
+# L-moment gamma SVPDI with mixed-distribution zero handling identical to SPI.
+# VPD is non-negative and occasionally zero; the Stagge et al. center-of-
+# probability-mass approach correctly represents the discrete mass at zero.
+# Positive SVPDI = drought/high VPD (matches EDDI sign convention).
+# Reference: https://rmets.onlinelibrary.wiley.com/doi/10.1002/joc.4267
+
+gamma_fit_vpdi = function(x, export_opts = 'SVPDI', return_latest = TRUE,
+                          climatology_length = 30, zero_threshold = 0) {
   library(lmomco)
   tryCatch({
     x = as.numeric(x)
-    # Guard against zero VPD (rare but possible)
-    if (any(x == 0, na.rm = T)) x[which(x == 0)] = 0.001
     x = tail(x, climatology_length)
-    pwm = pwm.ub(x)
-    lmoments_x = pwm2lmom(pwm)
-    fit.gam = pargam(lmoments_x)
-    fit.cdf = cdfgam(x, fit.gam)
-    # Positive = drought/high VPD (matches EDDI convention in this repo)
-    svpdi = qnorm(fit.cdf, mean = 0, sd = 1)
-    if (return_latest == T) {
-      if (export_opts == 'CDF')    return(fit.cdf[length(fit.cdf)])
-      if (export_opts == 'params') return(fit.gam)
-      if (export_opts == 'SVPDI') return(svpdi[length(svpdi)])
+    n = length(x)
+    if (n < 3) return(NA)
+
+    # Identify zeros (threshold per Stagge et al.)
+    is_zero = (x <= zero_threshold)
+    n_zero  = sum(is_zero)
+
+    if (n_zero == n) {
+      # All zeros: center of mass -> SVPDI = 0 for all
+      svpdi   = rep(0, n)
+      fit_cdf = rep(0.5, n)
+    } else {
+      x_pos = x[!is_zero]
+      if (length(x_pos) < 3 || stats::sd(x_pos) == 0) return(NA)
+
+      # L-moment gamma fit to non-zero values
+      pwm      = pwm.ub(x_pos)
+      lmom     = pwm2lmom(pwm)
+      fit.gam  = pargam(lmom)
+
+      # Weibull plotting positions (Stagge et al. Eq. 2-3)
+      p0      = n_zero / (n + 1)
+      p_bar_0 = (n_zero + 1) / (2 * (n + 1))
+
+      # Build CDF (Stagge et al. Eq. 4)
+      fit_cdf = numeric(n)
+      fit_cdf[is_zero]  = p_bar_0
+      fit_cdf[!is_zero] = p0 + (1 - p0) * cdfgam(x_pos, fit.gam)
+
+      # Transform to standard normal (positive = high VPD = drought)
+      svpdi = qnorm(fit_cdf)
     }
-    if (return_latest == F) {
-      if (export_opts == 'CDF')    return(fit.cdf)
-      if (export_opts == 'params') return(fit.gam)
-      if (export_opts == 'SVPDI') return(svpdi)
+
+    if (return_latest) {
+      if (export_opts == 'CDF')    return(fit_cdf[n])
+      if (export_opts == 'params') return(list(fit = fit.gam,
+                                                p0 = n_zero / (n + 1)))
+      if (export_opts == 'SVPDI')  return(svpdi[n])
+    } else {
+      if (export_opts == 'CDF')    return(fit_cdf)
+      if (export_opts == 'params') return(list(fit = fit.gam,
+                                                p0 = n_zero / (n + 1)))
+      if (export_opts == 'SVPDI')  return(svpdi)
     }
   }, error = function(cond) return(NA))
 }

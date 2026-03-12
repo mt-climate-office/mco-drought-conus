@@ -112,6 +112,12 @@ variable "clim_periods" {
   default     = "rolling:30,full"
 }
 
+variable "timescales" {
+  description = "Timescale windows (TIMESCALES). Comma-separated day counts or 'wy','ytd'. e.g. '15,30,45,60,90,120,180,365,730,wy,ytd'"
+  type        = string
+  default     = "15,30,45,60,90,120,180,365,730,wy,ytd"
+}
+
 variable "log_retention_days" {
   description = "CloudWatch log retention in days"
   type        = number

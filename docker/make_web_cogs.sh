@@ -2,6 +2,7 @@
 # make_web_cogs.sh
 # Convert conus_drought/ COGs to lightweight web-optimized COGs in conus_drought_web/.
 # Rounds values to 2 decimal places, adds an overview pyramid, uses DEFLATE compression.
+# Preserves band description and DATE_TIME metadata from source files.
 # Raw files in conus_drought/ are never modified.
 #
 # Usage:
@@ -17,6 +18,16 @@ DATA_DIR="${DATA_DIR:-$HOME/mco-drought-conus-data}"
 SRC_DIR="${1:-$DATA_DIR/derived/conus_drought}"
 WEB_DIR="${2:-$DATA_DIR/derived/conus_drought_web}"
 TMPDIR="${TMPDIR:-/tmp}"
+
+# Find the Python that has osgeo (GDAL's Python, not necessarily bare python3)
+GDAL_PYTHON="python3"
+if ! "$GDAL_PYTHON" -c "from osgeo import gdal" 2>/dev/null; then
+  # Use the same interpreter that gdal_calc.py uses
+  _shebang="$(head -1 "$(command -v gdal_calc.py 2>/dev/null)" 2>/dev/null | sed 's/^#! *//')"
+  if [ -n "$_shebang" ] && "$_shebang" -c "from osgeo import gdal" 2>/dev/null; then
+    GDAL_PYTHON="$_shebang"
+  fi
+fi
 
 echo "=== $(date) — make_web_cogs.sh ==="
 echo "    Source : $SRC_DIR"
@@ -41,13 +52,19 @@ for src_tif in "${tif_files[@]}"; do
   tmp_tif="$TMPDIR/webcog_tmp_$$_${base}"
   dst_tif="$WEB_DIR/$base"
 
-  # 1 — Normalize nodata: terra writes masked pixels as NaN (not -9999).
+  # 1 — Extract band description and DATE_TIME from source before conversion
+  band_desc="$(gdalinfo "$src_tif" 2>/dev/null \
+    | grep -m1 'Description =' | sed 's/.*Description = //' || true)"
+  date_time="$(gdalinfo "$src_tif" 2>/dev/null \
+    | grep -m1 'DATE_TIME=' | sed 's/.*DATE_TIME=//' || true)"
+
+  # 2 — Normalize nodata: terra writes masked pixels as NaN (not -9999).
   #     gdalwarp with -srcnodata nan converts NaN/mask-band pixels → -9999 Float32,
   #     giving gdal_calc a clean, uniform nodata value to work with.
   tmp_norm="$TMPDIR/webcog_norm_$$_${base}"
   gdalwarp -q -srcnodata nan -dstnodata -9999 "$src_tif" "$tmp_norm"
 
-  # 2 — Scale to Int16 (multiply by 100, nodata=-9999 fits in Int16 range).
+  # 3 — Scale to Int16 (multiply by 100, nodata=-9999 fits in Int16 range).
   #     SCALE=0.01 metadata lets clients recover original float values automatically.
   gdal_calc.py -A "$tmp_norm" \
     --outfile="$tmp_tif" \
@@ -55,22 +72,33 @@ for src_tif in "${tif_files[@]}"; do
     --type=Int16 --NoDataValue=-9999 --overwrite --quiet
   rm -f "$tmp_norm"
 
-  # 3 — Build overview pyramid
-  gdaladdo -r average \
-    --config COMPRESS_OVERVIEW DEFLATE \
-    --config PREDICTOR_OVERVIEW 2 \
-    "$tmp_tif" 2 4 8 16 32 2>/dev/null
+  # 4 — Stamp band metadata on the intermediate GeoTIFF BEFORE COG conversion.
+  #     COG files block in-place updates, so we set band description and
+  #     DATE_TIME here. gdal_translate -of COG carries band metadata through.
+  "$GDAL_PYTHON" -c "
+from osgeo import gdal
+gdal.UseExceptions()
+ds = gdal.Open('${tmp_tif}', gdal.GA_Update)
+band = ds.GetRasterBand(1)
+if '${band_desc}': band.SetDescription('${band_desc}')
+if '${date_time}': band.SetMetadataItem('DATE_TIME', '${date_time}')
+ds.FlushCache()
+ds = None
+" 2>/dev/null || true
 
-  # 4 — Write web COG with scale metadata so clients decode Int16 → float correctly
+  # 5 — Write web COG (the COG driver auto-generates overviews)
+  mo_args=(-mo "SCALE=0.01" -mo "OFFSET=0")
+  [ -n "$date_time" ] && mo_args+=(-mo "data_date=$date_time")
+
   gdal_translate "$tmp_tif" "$dst_tif" \
     -of COG \
     -co COMPRESS=DEFLATE \
     -co PREDICTOR=2 \
-    -co ZLEVEL=9 \
-    -co COPY_SRC_OVERVIEWS=YES \
+    -co LEVEL=9 \
+    -co OVERVIEW_COMPRESS=DEFLATE \
+    -co OVERVIEW_PREDICTOR=2 \
     -co RESAMPLING=AVERAGE \
-    -mo "SCALE=0.01" \
-    -mo "OFFSET=0" \
+    "${mo_args[@]}" \
     -q
 
   rm -f "$tmp_tif"
