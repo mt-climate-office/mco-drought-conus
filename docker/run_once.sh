@@ -29,7 +29,7 @@ mkdir -p \
   "$TERRA_TEMP_DIR"
 
 # Fix permissions on existing dirs before trying to create new subdirs.
-chown -R rstudio:rstudio "$DATA_DIR" 2>/dev/null || true
+chown -R mco-drought:mco-drought "$DATA_DIR" 2>/dev/null || true
 chmod -R a+rwx "$DATA_DIR" 2>/dev/null || true
 
 for var in pr pet vpd tmmx; do
@@ -190,7 +190,7 @@ fi
 # ============================================================
 if [ -n "${AWS_BUCKET:-}" ]; then
   # Determine the data date from the date embedded in output filenames,
-  # e.g. spi_15d_rolling_30_2026-03-10.tif → 2026-03-10.
+  # e.g. spi_15d_rolling-30_2026-03-10.tif → 2026-03-10.
   DATA_DATE=$(find "$DATA_DIR/derived/conus_drought/" -name "*.tif" 2>/dev/null \
     | head -1 | xargs basename 2>/dev/null \
     | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' || true)

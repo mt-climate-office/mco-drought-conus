@@ -9,16 +9,17 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --navy:    #1a3a5c;
-    --navy-lt: #2a5080;
-    --accent:  #2e7d32;
+    --blue:    #2171b5;
+    --blue-dk: #1a3a5c;
     --bg:      #ffffff;
-    --bg-code: #f4f6f9;
-    --border:  #d0d7e0;
-    --text:    #212121;
+    --bg-alt:  #f7f8fa;
+    --bg-code: #f3f5f8;
+    --border:  #ccd3dc;
+    --rule:    #999;
+    --text:    #1a1a1a;
     --muted:   #555;
-    --sidebar-w: 240px;
-    --content-max: 860px;
+    --sidebar-w: 230px;
+    --content-max: 780px;
   }
 
   html { scroll-behavior: smooth; font-size: 16px; }
@@ -27,8 +28,9 @@
     font-family: Georgia, 'Times New Roman', Times, serif;
     background: var(--bg);
     color: var(--text);
-    line-height: 1.7;
+    line-height: 1.72;
     display: flex;
+    -webkit-font-smoothing: antialiased;
   }
 
   /* ── Sidebar TOC ──────────────────────────────────────────────── */
@@ -39,135 +41,174 @@
     top: 0;
     height: 100vh;
     overflow-y: auto;
-    background: #f8f9fb;
+    background: var(--bg-alt);
     border-right: 1px solid var(--border);
-    padding: 1.5rem 1rem;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 0.8rem;
+    padding: 2rem 1.1rem;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif;
+    font-size: 0.78rem;
   }
 
   #toc h2 {
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.12em;
     color: var(--muted);
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.85rem;
     font-weight: 700;
     font-family: inherit;
   }
 
   #toc ol { list-style: decimal; padding-left: 1.1rem; }
-  #toc ul { list-style: disc; padding-left: 1.2rem; margin-top: 0.25rem; }
-  #toc li { margin-bottom: 0.2rem; }
+  #toc ul { list-style: none; padding-left: 0.9rem; margin-top: 0.15rem; }
+  #toc li { margin-bottom: 0.15rem; }
 
   #toc a {
-    color: var(--navy);
+    color: var(--text);
     text-decoration: none;
-    line-height: 1.4;
+    line-height: 1.45;
     display: inline-block;
+    transition: color 0.15s;
   }
-  #toc a:hover { color: var(--navy-lt); text-decoration: underline; }
+  #toc a:hover { color: var(--blue); }
 
   #toc .toc-sub {
-    font-size: 0.75rem;
+    font-size: 0.73rem;
     color: var(--muted);
   }
+  #toc .toc-sub a { color: var(--muted); }
+  #toc .toc-sub a:hover { color: var(--blue); }
 
   /* ── Main content ─────────────────────────────────────────────── */
   #content {
     flex: 1;
-    padding: 3rem 3.5rem;
+    padding: 2.5rem 3.5rem 4rem;
     max-width: calc(var(--sidebar-w) + var(--content-max));
+  }
+
+  /* ── Journal-style banner ─────────────────────────────────────── */
+  .journal-banner {
+    font-family: Georgia, serif;
+    font-size: 1.55rem;
+    font-weight: 700;
+    color: var(--blue);
+    letter-spacing: -0.02em;
+    padding-bottom: 0.4rem;
+    border-bottom: 2.5px solid var(--blue);
+    margin-bottom: 1.5rem;
   }
 
   /* ── Header ───────────────────────────────────────────────────── */
   #doc-header {
-    border-bottom: 3px solid var(--navy);
-    margin-bottom: 2rem;
-    padding-bottom: 1.25rem;
+    border-bottom: none;
+    margin-bottom: 1.5rem;
+    padding-bottom: 0;
   }
 
   #doc-header h1 {
     font-family: Georgia, serif;
-    font-size: 1.85rem;
-    color: var(--navy);
+    font-size: 1.6rem;
+    color: var(--text);
     font-weight: 700;
     line-height: 1.2;
-    margin-bottom: 0.4rem;
+    margin-bottom: 0.35rem;
   }
 
   #doc-header .subtitle {
-    font-size: 1.05rem;
+    font-size: 0.95rem;
     color: var(--muted);
-    font-style: italic;
-    margin-bottom: 0.6rem;
+    font-style: normal;
+    margin-bottom: 0.75rem;
   }
 
   #doc-header .meta {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 0.82rem;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif;
+    font-size: 0.8rem;
     color: var(--muted);
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
   }
 
   #doc-header .meta span { margin-right: 1.5rem; }
 
+  /* ── Abstract ──────────────────────────────────────────────────── */
+  #abstract {
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    padding: 1rem 0;
+    margin-bottom: 1.5rem;
+  }
+
+  #abstract p {
+    font-size: 0.92rem;
+    text-align: justify;
+    text-justify: inter-word;
+  }
+
   /* ── Section headings ─────────────────────────────────────────── */
+  section > section { margin-left: 0; }
+
   h2 {
     font-family: Georgia, serif;
-    font-size: 1.4rem;
-    color: var(--navy);
-    margin: 2.5rem 0 0.75rem;
+    font-size: 1.25rem;
+    color: var(--text);
+    font-weight: 700;
+    margin: 2.5rem 0 0.6rem;
     padding-bottom: 0.3rem;
-    border-bottom: 1.5px solid var(--border);
+    border-bottom: 1px solid var(--rule);
   }
 
   h3 {
     font-family: Georgia, serif;
-    font-size: 1.1rem;
-    color: var(--navy-lt);
-    margin: 1.75rem 0 0.5rem;
+    font-size: 1.05rem;
+    color: var(--text);
+    font-weight: 700;
+    margin: 1.6rem 0 0.4rem;
   }
 
   h4 {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 0.95rem;
+    font-family: Georgia, serif;
+    font-size: 0.92rem;
     font-weight: 700;
+    font-style: italic;
     color: var(--text);
-    margin: 1.2rem 0 0.3rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    margin: 1.1rem 0 0.25rem;
   }
 
   /* ── Body text ────────────────────────────────────────────────── */
-  p { margin-bottom: 0.9rem; }
+  p {
+    margin-bottom: 0.85rem;
+    text-align: justify;
+    text-justify: inter-word;
+  }
 
   ul, ol {
-    margin: 0.5rem 0 0.9rem 1.6rem;
+    margin: 0.4rem 0 0.85rem 1.6rem;
   }
-  li { margin-bottom: 0.25rem; }
+  li { margin-bottom: 0.2rem; }
 
-  a { color: var(--navy-lt); }
-  a:hover { color: var(--navy); }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  sup a { font-size: 0.8em; color: var(--blue); }
 
   /* ── Code ─────────────────────────────────────────────────────── */
   code {
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 0.85em;
+    font-family: 'SF Mono', 'Consolas', 'Courier New', monospace;
+    font-size: 0.82em;
     background: var(--bg-code);
-    padding: 0.1em 0.35em;
+    padding: 0.1em 0.3em;
     border-radius: 3px;
-    color: #c0392b;
+    color: #2c3e50;
   }
 
   pre {
     background: var(--bg-code);
     border: 1px solid var(--border);
-    border-left: 4px solid var(--navy);
-    border-radius: 4px;
-    padding: 1rem 1.25rem;
+    border-radius: 3px;
+    padding: 0.9rem 1.1rem;
     overflow-x: auto;
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 0.83rem;
+    font-family: 'SF Mono', 'Consolas', 'Courier New', monospace;
+    font-size: 0.8rem;
     line-height: 1.55;
     margin: 0.75rem 0 1.1rem;
     color: #2c3e50;
@@ -183,57 +224,60 @@
   /* ── Tables ───────────────────────────────────────────────────── */
   .table-wrap {
     overflow-x: auto;
-    margin: 1rem 0 1.5rem;
+    margin: 0.75rem 0 1.25rem;
+    font-size: 0.88rem;
   }
 
   table {
     border-collapse: collapse;
     width: 100%;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 0.85rem;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif;
+    font-size: 0.84rem;
+    border-top: 2px solid var(--text);
+    border-bottom: 2px solid var(--text);
   }
 
   th {
-    background: var(--navy);
-    color: #fff;
+    background: transparent;
+    color: var(--text);
     text-align: left;
-    padding: 0.55rem 0.75rem;
-    font-weight: 600;
-    white-space: nowrap;
+    padding: 0.45rem 0.7rem;
+    font-weight: 700;
+    font-size: 0.82rem;
+    border-bottom: 1px solid var(--text);
   }
 
   td {
-    padding: 0.45rem 0.75rem;
-    border-bottom: 1px solid var(--border);
+    padding: 0.35rem 0.7rem;
+    border-bottom: 1px solid #e0e3e8;
     vertical-align: top;
   }
 
-  tr:nth-child(even) td { background: #f8f9fb; }
-  tr:hover td { background: #eef2f7; }
+  tr:last-child td { border-bottom: none; }
 
   /* ── Callout / note boxes ─────────────────────────────────────── */
   .note {
-    background: #e8f4fd;
-    border-left: 4px solid #2196f3;
-    padding: 0.7rem 1rem;
-    border-radius: 0 4px 4px 0;
+    background: #f0f4f8;
+    border-left: 3px solid var(--blue);
+    padding: 0.6rem 1rem;
+    border-radius: 0 3px 3px 0;
     margin: 1rem 0;
-    font-size: 0.9rem;
+    font-size: 0.88rem;
   }
 
-  .note strong { color: #1565c0; }
+  .note strong { color: var(--blue-dk); }
 
   /* ── Equation block ───────────────────────────────────────────── */
   .eq {
     text-align: center;
-    margin: 1rem 2rem;
+    margin: 1rem 0;
     font-style: italic;
-    font-size: 1rem;
-    padding: 0.5rem;
-    background: #fafbfc;
-    border: 1px solid var(--border);
-    border-radius: 4px;
+    font-size: 1.02rem;
+    padding: 0.5rem 0;
+    background: transparent;
+    border: none;
     font-family: Georgia, serif;
+    line-height: 2;
   }
 
   /* ── References ───────────────────────────────────────────────── */
@@ -242,8 +286,8 @@
   }
 
   .references li {
-    margin-bottom: 0.6rem;
-    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.86rem;
     line-height: 1.5;
   }
 
@@ -257,6 +301,7 @@
     a { color: #000; text-decoration: none; }
     a[href]::after { content: " [" attr(href) "]"; font-size: 8pt; color: #555; }
     .note { border: 1px solid #aaa; background: #f5f5f5; }
+    p, #abstract p { text-align: left; }
   }
 
   @media (max-width: 800px) {
@@ -269,6 +314,7 @@
       border-bottom: 1px solid var(--border);
     }
     #content { padding: 1.5rem 1rem; }
+    p, #abstract p { text-align: left; }
   }
 </style>
 </head>
@@ -282,21 +328,22 @@
     <li>
       <a href="#data">Data</a>
       <ul>
-        <li class="toc-sub"><a href="#gridmet">3.1 gridMET</a></li>
+        <li class="toc-sub"><a href="#gridmet">2.1 gridMET</a></li>
       </ul>
     </li>
+    <li><a href="#clim-periods">Reference Periods</a></li>
     <li>
       <a href="#methods">Drought Index Methods</a>
       <ul>
         <li class="toc-sub"><a href="#spi">4.1 SPI</a></li>
-        <li class="toc-sub"><a href="#spei">4.2 SPEI</a></li>
-        <li class="toc-sub"><a href="#eddi">4.3 EDDI</a></li>
-        <li class="toc-sub"><a href="#svpdi">4.4 SVPDI</a></li>
-        <li class="toc-sub"><a href="#tmax">4.5 Tmax Percentile</a></li>
-        <li class="toc-sub"><a href="#ancillary">4.6 Ancillary Precip</a></li>
+        <li class="toc-sub"><a href="#ancillary">4.2 Ancillary Precip</a></li>
+        <li class="toc-sub"><a href="#spei">4.3 SPEI</a></li>
+        <li class="toc-sub"><a href="#eddi">4.4 EDDI</a></li>
+        <li class="toc-sub"><a href="#svpdi">4.5 SVPDI</a></li>
+        <li class="toc-sub"><a href="#vpd-ancillary">4.6 VPD Ancillary</a></li>
+        <li class="toc-sub"><a href="#tmax">4.7 Tmax</a></li>
       </ul>
     </li>
-    <li><a href="#clim-periods">Reference Periods</a></li>
     <li><a href="#spatial">Spatial Architecture</a></li>
     <li><a href="#outputs">Output Products</a></li>
     <li><a href="#software">Software &amp; Reproducibility</a></li>
@@ -307,23 +354,23 @@
 <!-- ═══════════════════════════ MAIN CONTENT ════════════════════════════ -->
 <main id="content">
 
+  <!-- ── Journal banner ─────────────────────────────────────────────── -->
+  <div class="journal-banner">Montana Climate Office</div>
+
   <!-- ── Header ──────────────────────────────────────────────────────── -->
   <header id="doc-header">
-    <h1>Methods: CONUS Drought Monitoring Pipeline</h1>
-    <p class="subtitle">Montana Climate Office — Operational Daily Drought Indices from gridMET</p>
+    <h1>CONUS Drought Monitoring Pipeline: Methods</h1>
+    <p class="subtitle">Zachary H. Hoylman, R. Kyle Bocinsky, and Kelsey G. Jencso &mdash; Montana Climate Office, University of Montana</p>
     <div class="meta">
-      <span>Date: <time id="doc-date">2026-03-08</time></span>
-      <span>Version: 1.0</span>
-      <span>DOI: <em>pending</em></span>
+      <span>Updated: <time id="doc-date">2026-03-12</time></span>
+      <span>Version 1.1</span>
     </div>
   </header>
 
   <!-- ── Abstract ────────────────────────────────────────────────────── -->
   <section id="abstract">
-    <h2>Abstract</h2>
-
     <p>
-      The Montana Climate Office (MCO) CONUS Drought Monitoring Pipeline is an operational
+      <strong style="font-size: 1rem;">Abstract</strong>&ensp;The Montana Climate Office (MCO) CONUS Drought Monitoring Pipeline is an operational
       system that computes a suite of standardized drought indices on a daily basis across the
       contiguous United States (CONUS). The pipeline ingests daily gridded meteorological fields
       from gridMET <sup><a href="#ref1">[1]</a></sup>, a high-resolution (~4&nbsp;km; 1/24°)
@@ -333,12 +380,16 @@
     </p>
 
     <p>
-      From these inputs the pipeline derives five primary drought index families:
+      From these inputs the pipeline derives five standardized drought index families —
       the Standardized Precipitation Index (SPI), the Standardized
       Precipitation-Evapotranspiration Index (SPEI), the Evaporative Demand Drought Index
-      (EDDI), the Standardized VPD Index (SVPDI), and daily maximum temperature percentiles
-      (Tmax). Each index is computed across multiple aggregation timescales ranging from 15 to
-      730 days, water-year accumulations, and year-to-date accumulations.
+      (EDDI), the Standardized VPD Index (SVPDI), and maximum temperature percentiles
+      (Tmax) — alongside ancillary products including precipitation accumulation (mm),
+      percent of normal and deviation from normal for both precipitation and VPD,
+      empirical percentile ranks for precipitation, VPD, and Tmax, and temperature
+      deviation from normal. Each metric is computed across multiple aggregation
+      timescales ranging from 15 to 730 days, as well as water-year and year-to-date
+      accumulations.
     </p>
 
     <p>
@@ -353,12 +404,12 @@
     </p>
   </section>
 
-  <!-- ── Section 3: Data ─────────────────────────────────────────────── -->
+  <!-- ── Section 2: Data ─────────────────────────────────────────────── -->
   <section id="data">
-    <h2>3. Data</h2>
+    <h2>2. Data</h2>
 
     <section id="gridmet">
-      <h3>3.1 gridMET Climate Data</h3>
+      <h3>2.1 gridMET Climate Data</h3>
 
       <p>
         All meteorological inputs are obtained from gridMET <sup><a href="#ref1">[1]</a></sup>,
@@ -386,10 +437,10 @@
             </tr>
           </thead>
           <tbody>
-            <tr><td>Precipitation</td><td><code>pr</code></td><td>mm/day</td><td>SPI, SPEI water balance, ancillary</td></tr>
+            <tr><td>Precipitation</td><td><code>pr</code></td><td>mm/day</td><td>SPI, SPEI water balance, precip % of normal, precip deviation, precip percentile, precip accumulation (mm)</td></tr>
             <tr><td>Reference ET (ETo)</td><td><code>pet</code></td><td>mm/day</td><td>SPEI water balance, EDDI</td></tr>
-            <tr><td>Vapor pressure deficit</td><td><code>vpd</code></td><td>hPa</td><td>SVPDI</td></tr>
-            <tr><td>Maximum air temperature</td><td><code>tmmx</code></td><td>°C (K in source)</td><td>Tmax percentile</td></tr>
+            <tr><td>Vapor pressure deficit</td><td><code>vpd</code></td><td>kPa</td><td>SVPDI, VPD % of normal, VPD deviation, VPD percentile</td></tr>
+            <tr><td>Maximum air temperature</td><td><code>tmmx</code></td><td>K</td><td>Tmax percentile, Tmax deviation</td></tr>
           </tbody>
         </table>
       </div>
@@ -397,21 +448,30 @@
       <h4>Download &amp; Caching Strategy</h4>
 
       <p>
-        gridMET distributes data as annual NetCDF-4 files via OPeNDAP/THREDDS. The pipeline
-        implements a two-phase refresh strategy:
+        gridMET distributes data as annual NetCDF-4 files. The pipeline loops over every
+        year from <code>START_YEAR</code> (default 1979) through the current calendar year
+        for all four variables (<code>pr</code>, <code>pet</code>, <code>vpd</code>,
+        <code>tmmx</code>), using timestamp-conditional downloads via
+        <code>curl&nbsp;-R&nbsp;-z</code>:
       </p>
-      <ol>
+      <ul>
         <li>
-          <strong>Historical cache</strong> — Annual files from <code>START_YEAR</code> through
-          the previous calendar year are downloaded once and stored locally. Re-downloads are
-          skipped if the local file already exists and passes an integrity check.
+          <strong><code>-R</code></strong> — Sets the local file's modification time to
+          the server's <code>Last-Modified</code> timestamp on download.
         </li>
         <li>
-          <strong>Current-year refresh</strong> — The current calendar year file is
-          re-downloaded on every pipeline run to capture the most recent daily observations,
-          which are appended incrementally by the gridMET provider.
+          <strong><code>-z &lt;file&gt;</code></strong> — Sends an
+          <code>If-Modified-Since</code> header. If the remote file has not been updated
+          since the local copy's mtime, the download is skipped entirely (HTTP 304).
         </li>
-      </ol>
+      </ul>
+      <p>
+        This means every year — including historical years — is checked on each run, but
+        only files that have actually changed on the server are re-downloaded. In practice,
+        completed historical years are never re-fetched after the initial download, while the
+        current (in-progress) year file is updated whenever the provider appends new daily
+        observations. Failed downloads are retried up to 3 times with a short backoff.
+      </p>
       <p>
         All annual NetCDFs are retained to allow reprocessing with alternative reference
         periods without re-downloading. The default archive start year is 1979 (the full
@@ -421,376 +481,9 @@
     </section>
   </section>
 
-  <!-- ── Section 4: Drought Index Methods ───────────────────────────── -->
-  <section id="methods">
-    <h2>4. Drought Index Methods</h2>
-
-    <p>
-      All indices are computed at each grid cell independently. For a given aggregation
-      window of <em>W</em> days, a rolling sum or mean of the input variable is first computed
-      over the full historical record. The resulting time series is then stratified by
-      calendar day-of-year, and a probability distribution (or empirical CDF) is fitted to
-      the subsample of values that fall within the selected climatological reference period.
-      The current (most recent) observation is then transformed to a standardized anomaly or
-      probability using that fitted distribution. Index values are positive for above-average
-      conditions and negative (or high) for drought conditions, following established
-      conventions for each index.
-    </p>
-
-    <!-- 4.1 SPI ──────────────────────────────────────────────────────── -->
-    <section id="spi">
-      <h3>4.1 Standardized Precipitation Index (SPI)</h3>
-
-      <h4>Motivation</h4>
-      <p>
-        The SPI <sup><a href="#ref7">[7]</a></sup> expresses precipitation anomalies in units
-        of standard deviations relative to a fitted climatological distribution, making it
-        comparable across locations and timescales with differing precipitation regimes. It
-        is the most widely used standardized drought index and serves as a fundamental
-        building block for multi-variable composite assessments.
-      </p>
-
-      <h4>Input</h4>
-      <p>Daily precipitation (<code>pr</code>), in millimeters.</p>
-
-      <h4>Aggregation</h4>
-      <p>Rolling window sums over the following timescales:</p>
-      <ul>
-        <li>Fixed windows: 15, 30, 45, 60, 90, 120, 180, 365, and 730 days</li>
-        <li>Water-year accumulation (Oct 1 – current date, or equivalent)</li>
-        <li>Year-to-date accumulation (Jan 1 – current date)</li>
-      </ul>
-
-      <h4>Statistical Method</h4>
-      <p>
-        Precipitation is inherently bounded at zero and right-skewed; a two-parameter
-        Gamma distribution (shape <em>&alpha;</em>, rate <em>&beta;</em>) is therefore fitted
-        to the climatological sample for each grid cell and aggregation window. Parameter
-        estimation follows the L-moment / probability-weighted moment (PWM) approach of
-        Hosking (1990) <sup><a href="#ref6">[6]</a></sup>, as implemented in the R package
-        <code>lmomco</code>:
-      </p>
-
-      <ol>
-        <li>
-          <strong>Zero handling</strong> — Exact zeros are replaced with 0.01&nbsp;mm prior
-          to fitting. This avoids the degenerate mixed discrete-continuous distribution while
-          having negligible effect on parameters estimated from multi-week accumulations.
-        </li>
-        <li>
-          <strong>PWM estimation</strong> — Unbiased probability-weighted moments
-          <em>&beta;<sub>0</sub></em>, <em>&beta;<sub>1</sub></em> are computed from the
-          climatological sample.
-        </li>
-        <li>
-          <strong>L-moment conversion</strong> — PWMs are converted to L-moments
-          (&lambda;<sub>1</sub>, &lambda;<sub>2</sub>, <em>&tau;</em><sub>3</sub>).
-        </li>
-        <li>
-          <strong>Parameter estimation</strong> — <code>lmomco::pargam()</code> returns
-          (&alpha;, &beta;) from L-moments.
-        </li>
-        <li>
-          <strong>CDF evaluation</strong> — The Gamma CDF is evaluated at the current
-          observation to obtain a non-exceedance probability <em>p</em>.
-        </li>
-        <li>
-          <strong>Normal quantile transform</strong> — SPI = <em>&Phi;</em><sup>−1</sup>(<em>p</em>),
-          where <em>&Phi;</em><sup>−1</sup> is the standard normal quantile function.
-        </li>
-      </ol>
-
-      <div class="eq">
-        SPI = &Phi;<sup>&minus;1</sup>[ F<sub>&Gamma;(&alpha;,&beta;)</sub>( X<sub>W</sub> ) ]
-      </div>
-
-      <h4>Interpretation</h4>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>SPI value</th><th>Category</th></tr></thead>
-          <tbody>
-            <tr><td>&ge; +2.0</td><td>Extremely wet</td></tr>
-            <tr><td>+1.5 to +1.99</td><td>Very wet</td></tr>
-            <tr><td>+1.0 to +1.49</td><td>Moderately wet</td></tr>
-            <tr><td>&minus;0.99 to +0.99</td><td>Near normal</td></tr>
-            <tr><td>&minus;1.0 to &minus;1.49</td><td>Moderately dry</td></tr>
-            <tr><td>&minus;1.5 to &minus;1.99</td><td>Severely dry</td></tr>
-            <tr><td>&le; &minus;2.0</td><td>Extremely dry</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <h4>Minimum Data Requirement</h4>
-      <p>
-        At least 10 anchor years must fall within the selected reference period for a
-        distribution fit to be attempted. Grid cells with fewer anchor years receive a
-        fill value of <code>NA</code> for the current timestep.
-      </p>
-    </section>
-
-    <!-- 4.2 SPEI ─────────────────────────────────────────────────────── -->
-    <section id="spei">
-      <h3>4.2 Standardized Precipitation-Evapotranspiration Index (SPEI)</h3>
-
-      <h4>Motivation</h4>
-      <p>
-        The SPEI <sup><a href="#ref5">[5]</a></sup> extends SPI by incorporating the
-        atmospheric evaporative demand, making it sensitive to warming-driven increases in
-        PET even when precipitation is unchanged. In a warming climate, SPEI captures
-        hydrological drought stress that SPI would miss.
-      </p>
-
-      <h4>Input</h4>
-      <p>
-        Water balance = precipitation (<code>pr</code>) − reference
-        evapotranspiration (<code>pet</code>), in mm/day. Negative values indicate a
-        moisture deficit; positive values indicate a moisture surplus.
-      </p>
-
-      <h4>Aggregation</h4>
-      <p>Rolling window means over the same timescales as SPI.</p>
-
-      <h4>Statistical Method</h4>
-      <p>
-        The water balance variable is unbounded below (large PET on dry days) and has
-        heavier distributional tails than precipitation alone. The Generalized Logistic
-        (GLO) distribution, which accommodates both heavy tails and asymmetry, is therefore
-        used in place of the Gamma:
-      </p>
-      <ol>
-        <li>L-moments estimated from the climatological sample via unbiased PWMs.</li>
-        <li><code>lmomco::parglo()</code> fits the three-parameter GLO (&xi;, &alpha;, <em>k</em>).</li>
-        <li>GLO CDF evaluated at current observation → probability <em>p</em>.</li>
-        <li>SPEI = &Phi;<sup>−1</sup>(<em>p</em>).</li>
-      </ol>
-
-      <div class="eq">
-        SPEI = &Phi;<sup>&minus;1</sup>[ F<sub>GLO(&xi;,&alpha;,k)</sub>( P &minus; PET )<sub>W</sub> ]
-      </div>
-
-      <h4>Interpretation</h4>
-      <p>
-        SPEI values follow the same classification thresholds as SPI. Because it incorporates
-        evaporative demand, SPEI typically shows stronger drying trends over recent decades
-        than SPI alone, consistent with the non-stationarity findings of
-        <sup><a href="#ref2">[2]</a></sup>.
-      </p>
-    </section>
-
-    <!-- 4.3 EDDI ─────────────────────────────────────────────────────── -->
-    <section id="eddi">
-      <h3>4.3 Evaporative Demand Drought Index (EDDI)</h3>
-
-      <h4>Motivation</h4>
-      <p>
-        EDDI <sup><a href="#ref4">[4]</a></sup> isolates the atmospheric demand component of
-        the hydrological cycle. Because it is derived solely from PET — without precipitation
-        — it captures early warning signals of drought stress driven by high temperature, low
-        humidity, or high wind speed before soil moisture depletion has occurred.
-      </p>
-
-      <h4>Input</h4>
-      <p>Reference evapotranspiration (<code>pet</code>), in mm/day.</p>
-
-      <h4>Aggregation</h4>
-      <p>Rolling window sums (cumulative evaporative demand) over the same timescales as SPI.</p>
-
-      <h4>Statistical Method</h4>
-      <p>
-        EDDI uses a nonparametric rank-based approach, avoiding assumptions about the
-        distributional form of PET:
-      </p>
-      <ol>
-        <li>
-          <strong>Rank</strong> — Observations within the climatological sample are ranked
-          from highest (rank 1) to lowest. A rank of 1 therefore corresponds to maximum
-          evaporative demand (drought stress).
-        </li>
-        <li>
-          <strong>Gringorten plotting position</strong> — The non-exceedance probability
-          of high PET (i.e., probability that demand is ≤ current value) is estimated as:
-          <div class="eq">
-            p<sub>i</sub> = (rank<sub>i</sub> &minus; 0.33) / (n + 0.33)
-          </div>
-          where <em>n</em> is the number of anchor years in the reference period.
-          Because rank 1 = highest demand, <em>p</em> is small for drought conditions.
-        </li>
-        <li>
-          <strong>Standard normal inverse</strong> — EDDI = &Phi;<sup>−1</sup>(<em>p</em>),
-          computed via the rational approximation of Wichura (1988)
-          <sup><a href="#ref8">[8]</a></sup>.
-        </li>
-        <li>
-          <strong>Sign convention</strong> — High PET (low <em>p</em>) produces positive
-          EDDI values, consistent with drought being positive. This is the opposite of the
-          ranking sense used internally.
-        </li>
-      </ol>
-
-      <div class="eq">
-        EDDI = &Phi;<sup>&minus;1</sup>[ p<sub>Gringorten</sub>( PET<sub>W</sub> ) ]
-      </div>
-
-      <h4>Interpretation</h4>
-      <p>
-        Positive EDDI indicates above-normal atmospheric demand (drought precursor or
-        ongoing drought amplifier). EDDI provides a pure atmospheric signal unconfounded
-        by antecedent precipitation and is particularly valuable for flash drought
-        early warning.
-      </p>
-    </section>
-
-    <!-- 4.4 SVPDI ────────────────────────────────────────────────────── -->
-    <section id="svpdi">
-      <h3>4.4 Standardized VPD Index (SVPDI)</h3>
-
-      <h4>Motivation</h4>
-      <p>
-        Vapor pressure deficit (VPD) is the difference between the saturation vapor pressure
-        and the actual vapor pressure. Elevated VPD increases transpiration demand and can
-        cause stomatal closure even when soil moisture is adequate, directly linking
-        atmospheric drought to vegetation stress. The SVPDI provides a standardized measure
-        of VPD anomaly that is complementary to the precipitation-based indices.
-        Its relationship to soil moisture and vegetation drought is evaluated in Hoylman
-        et al. (2023) <sup><a href="#ref3">[3]</a></sup>.
-      </p>
-
-      <h4>Input</h4>
-      <p>Mean daily vapor pressure deficit (<code>vpd</code>), in hPa.</p>
-
-      <h4>Aggregation</h4>
-      <p>Rolling window means over the same timescales as SPI.</p>
-
-      <h4>Statistical Method</h4>
-      <p>
-        VPD is strictly non-negative and right-skewed, motivating the use of the Gamma
-        distribution with L-moment/PWM parameter estimation, identical to the SPI procedure:
-      </p>
-      <ol>
-        <li>
-          <strong>Zero handling</strong> — Exact zeros are replaced with 0.001&nbsp;hPa
-          to enable Gamma fitting.
-        </li>
-        <li>
-          Unbiased PWMs → L-moments → <code>lmomco::pargam()</code> → Gamma CDF →
-          &Phi;<sup>−1</sup>(<em>p</em>).
-        </li>
-      </ol>
-
-      <div class="eq">
-        SVPDI = &Phi;<sup>&minus;1</sup>[ F<sub>&Gamma;(&alpha;,&beta;)</sub>( VPD<sub>W</sub> ) ]
-      </div>
-
-      <h4>Interpretation</h4>
-      <p>
-        Positive SVPDI = above-normal VPD = heightened atmospheric demand and potential
-        vegetation stress. Negative SVPDI = below-normal VPD = reduced atmospheric demand.
-      </p>
-    </section>
-
-    <!-- 4.5 Tmax ─────────────────────────────────────────────────────── -->
-    <section id="tmax">
-      <h3>4.5 Maximum Temperature Percentile (Tmax)</h3>
-
-      <h4>Motivation</h4>
-      <p>
-        Anomalously high temperatures amplify drought through increased PET and
-        accelerated snowmelt. A percentile-based temperature index provides context for
-        heat as a drought driver without coupling it to a precipitation signal.
-      </p>
-
-      <h4>Input</h4>
-      <p>Daily maximum air temperature (<code>tmmx</code>), in °C (converted from Kelvin in the source).</p>
-
-      <h4>Aggregation</h4>
-      <p>Rolling window means over the standard timescales.</p>
-
-      <h4>Statistical Method</h4>
-      <p>
-        A nonparametric empirical CDF approach is used; no parametric distribution is assumed:
-      </p>
-      <ol>
-        <li>
-          The empirical cumulative distribution function (ECDF) is constructed from the
-          climatological sample using <code>ecdf()</code> from base R.
-        </li>
-        <li>
-          The ECDF is evaluated at the current observation to produce a probability
-          (0–1 scale), where 1 indicates the warmest value on record within the
-          reference period.
-        </li>
-      </ol>
-
-      <div class="eq">
-        Tmax<sub>pctile</sub> = F&#x0302;<sub>n</sub>( Tmax<sub>W</sub> )
-      </div>
-
-      <h4>Interpretation</h4>
-      <p>
-        Values &gt; 0.9 indicate exceptionally warm conditions (top decile of the reference
-        climatology). The output is reported as a 0–1 probability rather than a standardized
-        anomaly, making it directly interpretable as an exceedance percentile.
-      </p>
-    </section>
-
-    <!-- 4.6 Ancillary ────────────────────────────────────────────────── -->
-    <section id="ancillary">
-      <h3>4.6 Ancillary Precipitation Metrics</h3>
-
-      <p>
-        In addition to the primary drought indices, four ancillary metrics are derived
-        directly from rolling precipitation sums to provide operational context:
-      </p>
-
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Metric</th>
-              <th>Formula</th>
-              <th>Units</th>
-              <th>Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Percent of Normal (PON)</td>
-              <td>( X<sub>W</sub> / &mu;<sub>clim</sub> ) &times; 100</td>
-              <td>%</td>
-              <td>Current accumulation as a percentage of the climatological mean</td>
-            </tr>
-            <tr>
-              <td>Departure</td>
-              <td>X<sub>W</sub> &minus; &mu;<sub>clim</sub></td>
-              <td>mm</td>
-              <td>Absolute anomaly relative to climatological mean</td>
-            </tr>
-            <tr>
-              <td>Percentile</td>
-              <td>F&#x0302;<sub>n</sub>( X<sub>W</sub> )</td>
-              <td>0–1</td>
-              <td>Empirical ECDF rank within the climatological sample</td>
-            </tr>
-            <tr>
-              <td>Accumulation (precip-in)</td>
-              <td>X<sub>W</sub> &times; 0.03937</td>
-              <td>inches</td>
-              <td>Raw rolling sum converted to inches for operational display</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p>
-        The climatological mean (&mu;<sub>clim</sub>) and ECDF are derived from the
-        same reference period used for SPI fitting, ensuring internal consistency
-        across all precipitation-based products.
-      </p>
-    </section>
-  </section>
-
-  <!-- ── Section 5: Reference Periods ──────────────────────────────── -->
+  <!-- ── Section 3: Reference Periods ──────────────────────────────── -->
   <section id="clim-periods">
-    <h2>5. Climatological Reference Periods</h2>
+    <h2>3. Climatological Reference Periods</h2>
 
     <h4>Scientific Motivation</h4>
     <p>
@@ -799,7 +492,7 @@
       can indicate moderate drought against a 1950–1980 baseline but near-normal conditions
       against a 1991–2020 WMO normal. As the climate warms, the statistical properties of
       temperature, PET, and water balance are trending systematically, violating the
-      stationarity assumption embedded in fixed-period normals. Diffenbaugh et al. (2022)
+      stationarity assumption embedded in fixed-period normals. Hoylman et al. (2022)
       <sup><a href="#ref2">[2]</a></sup> demonstrate that non-stationarity in baseline
       climate substantially alters drought frequency and severity assessments, motivating
       the use of flexible, contemporary reference periods for operational monitoring.
@@ -872,9 +565,484 @@ CLIM_PERIODS="full"</code></pre>
     </div>
   </section>
 
-  <!-- ── Section 6: Spatial Architecture ──────────────────────────── -->
+  <!-- ── Section 4: Drought Index Methods ───────────────────────────── -->
+  <section id="methods">
+    <h2>4. Drought Index Methods</h2>
+
+    <p>
+      All indices are computed at each grid cell independently. For a given aggregation
+      window of <em>W</em> days, a rolling sum or mean of the input variable is first computed
+      over the full historical record. The resulting time series is then stratified by
+      calendar day-of-year, and a probability distribution (or empirical CDF) is fitted to
+      the subsample of values that fall within the selected climatological reference period.
+      The current (most recent) observation is then transformed to a standardized anomaly or
+      probability using that fitted distribution. Index values are positive for above-average
+      conditions and negative (or high) for drought conditions, following established
+      conventions for each index.
+    </p>
+
+    <!-- 4.1 SPI ──────────────────────────────────────────────────────── -->
+    <section id="spi">
+      <h3>4.1 Standardized Precipitation Index (SPI)</h3>
+
+      <h4>Motivation</h4>
+      <p>
+        The SPI <sup><a href="#ref3">[3]</a></sup> expresses precipitation anomalies in units
+        of standard deviations relative to a fitted climatological distribution, making it
+        comparable across locations and timescales with differing precipitation regimes. It
+        is the most widely used standardized drought index and serves as a fundamental
+        building block for multi-variable composite assessments.
+      </p>
+
+      <h4>Input</h4>
+      <p>Daily precipitation (<code>pr</code>), in millimeters.</p>
+
+      <h4>Aggregation</h4>
+      <p>Rolling window sums over the following timescales:</p>
+      <ul>
+        <li>Fixed windows: 15, 30, 45, 60, 90, 120, 180, 365, and 730 days</li>
+        <li>Water-year accumulation (Oct 1 – current date, or equivalent)</li>
+        <li>Year-to-date accumulation (Jan 1 – current date)</li>
+      </ul>
+
+      <h4>Statistical Method</h4>
+      <p>
+        Precipitation is inherently bounded at zero and right-skewed; a two-parameter
+        Gamma distribution (shape <em>&alpha;</em>, rate <em>&beta;</em>) is therefore fitted
+        to the climatological sample for each grid cell and aggregation window. Parameter
+        estimation follows the L-moment / probability-weighted moment (PWM) approach of
+        Hosking (1990) <sup><a href="#ref4">[4]</a></sup>, as implemented in the R package
+        <code>lmomco</code>:
+      </p>
+
+      <ol>
+        <li>
+          <strong>Zero handling (Stagge et al., 2015)</strong> — Following the methodology of
+          Stagge et al. (2015) <sup><a href="#ref5">[5]</a></sup>, zero (or below-threshold)
+          precipitation values are handled via a mixed distribution approach using the Weibull
+          plotting position. The probability of zero precipitation is estimated as
+          <em>p</em><sub>0</sub>&nbsp;=&nbsp;<em>m</em>&nbsp;/&nbsp;(<em>n</em>&nbsp;+&nbsp;1),
+          where <em>m</em> is the number of zero values and <em>n</em> is the total sample size.
+          Zero-valued observations are assigned the center of probability mass below the threshold:
+          <div class="eq">
+            p&#x0304;<sub>0</sub> = (m + 1) / [ 2(n + 1) ]
+          </div>
+          Non-zero values are mapped to the upper portion of the probability space:
+          <div class="eq">
+            H(x) = p<sub>0</sub> + (1 &minus; p<sub>0</sub>) &sdot; G(x; &alpha;, &beta;)
+          </div>
+          where G is the Gamma CDF fitted only to positive values. This approach correctly
+          represents the discrete mass at zero without the artifacts introduced by replacing
+          zeros with small positive constants.
+        </li>
+        <li>
+          <strong>PWM estimation</strong> — Unbiased probability-weighted moments
+          <em>&beta;<sub>0</sub></em>, <em>&beta;<sub>1</sub></em> are computed from the
+          positive (non-zero) values in the climatological sample.
+        </li>
+        <li>
+          <strong>L-moment conversion</strong> — PWMs are converted to L-moments
+          (&lambda;<sub>1</sub>, &lambda;<sub>2</sub>, <em>&tau;</em><sub>3</sub>).
+        </li>
+        <li>
+          <strong>Parameter estimation</strong> — <code>lmomco::pargam()</code> returns
+          (&alpha;, &beta;) from L-moments of the positive values only.
+        </li>
+        <li>
+          <strong>CDF evaluation</strong> — For non-zero observations, the mixed CDF H(x) is
+          evaluated to obtain a non-exceedance probability <em>p</em>. For zero-valued
+          observations, <em>p</em>&nbsp;=&nbsp;<em>p&#x0304;</em><sub>0</sub> (center of
+          probability mass).
+        </li>
+        <li>
+          <strong>Normal quantile transform</strong> — SPI = <em>&Phi;</em><sup>&minus;1</sup>(<em>p</em>),
+          where <em>&Phi;</em><sup>&minus;1</sup> is the standard normal quantile function.
+          No clamping is applied to the resulting SPI values.
+        </li>
+      </ol>
+
+      <div class="eq">
+        SPI = &Phi;<sup>&minus;1</sup>[ F<sub>&Gamma;(&alpha;,&beta;)</sub>( X<sub>W</sub> ) ]
+      </div>
+
+      <h4>Interpretation</h4>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Description</th>
+              <th>Percentile Range</th>
+              <th>SPI / SPEI Values</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td></td><td>Normal or wet conditions</td><td>x &gt; 30</td><td>x &gt; &minus;0.524</td></tr>
+            <tr><td>D0</td><td>Abnormally Dry</td><td>30 &ge; x &gt; 20</td><td>&minus;0.524 &ge; x &gt; &minus;0.842</td></tr>
+            <tr><td>D1</td><td>Moderate Drought</td><td>20 &ge; x &gt; 10</td><td>&minus;0.842 &ge; x &gt; &minus;1.281</td></tr>
+            <tr><td>D2</td><td>Severe Drought</td><td>10 &ge; x &gt; 5</td><td>&minus;1.281 &ge; x &gt; &minus;1.644</td></tr>
+            <tr><td>D3</td><td>Extreme Drought</td><td>5 &ge; x &gt; 2</td><td>&minus;1.644 &ge; x &gt; &minus;2.054</td></tr>
+            <tr><td>D4</td><td>Exceptional Drought</td><td>x &lt; 2</td><td>x &lt; &minus;2.054</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Minimum Data Requirement</h4>
+      <p>
+        At least 10 anchor years must fall within the selected reference period for a
+        distribution fit to be attempted. Grid cells with fewer anchor years receive a
+        fill value of <code>NA</code> for the current timestep.
+      </p>
+    </section>
+
+    <!-- 4.2 Ancillary Precip ───────────────────────────────────────── -->
+    <section id="ancillary">
+      <h3>4.2 Ancillary Precipitation Metrics</h3>
+
+      <p>
+        In addition to the primary drought indices, four ancillary metrics are derived
+        directly from rolling precipitation sums to provide operational context:
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Formula</th>
+              <th>Units</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Percent of Normal (PON)</td>
+              <td>( X<sub>W</sub> / &mu;<sub>clim</sub> ) &times; 100</td>
+              <td>%</td>
+              <td>Current accumulation as a percentage of the climatological mean</td>
+            </tr>
+            <tr>
+              <td>Departure</td>
+              <td>X<sub>W</sub> &minus; &mu;<sub>clim</sub></td>
+              <td>mm</td>
+              <td>Absolute anomaly relative to climatological mean</td>
+            </tr>
+            <tr>
+              <td>Percentile</td>
+              <td>F&#x0302;<sub>n</sub>( X<sub>W</sub> )</td>
+              <td>0–1</td>
+              <td>Empirical ECDF rank within the climatological sample</td>
+            </tr>
+            <tr>
+              <td>Accumulation (precip-mm)</td>
+              <td>X<sub>W</sub></td>
+              <td>mm</td>
+              <td>Raw rolling precipitation sum</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The climatological mean (&mu;<sub>clim</sub>) and ECDF are derived from the
+        same reference period used for SPI fitting, ensuring internal consistency
+        across all precipitation-based products.
+      </p>
+    </section>
+
+    <!-- 4.3 SPEI ─────────────────────────────────────────────────────── -->
+    <section id="spei">
+      <h3>4.3 Standardized Precipitation-Evapotranspiration Index (SPEI)</h3>
+
+      <h4>Motivation</h4>
+      <p>
+        The SPEI <sup><a href="#ref6">[6]</a></sup> extends SPI by incorporating the
+        atmospheric evaporative demand, making it sensitive to warming-driven increases in
+        PET even when precipitation is unchanged. In a warming climate, SPEI captures
+        hydrological drought stress that SPI would miss.
+      </p>
+
+      <h4>Input</h4>
+      <p>
+        Water balance = precipitation (<code>pr</code>) − reference
+        evapotranspiration (<code>pet</code>), in mm/day. Negative values indicate a
+        moisture deficit; positive values indicate a moisture surplus.
+      </p>
+
+      <h4>Aggregation</h4>
+      <p>Rolling window means over the same timescales as SPI.</p>
+
+      <h4>Statistical Method</h4>
+      <p>
+        The water balance variable is unbounded below (large PET on dry days) and has
+        heavier distributional tails than precipitation alone. The Generalized Logistic
+        (GLO) distribution, which accommodates both heavy tails and asymmetry, is therefore
+        used in place of the Gamma:
+      </p>
+      <ol>
+        <li>L-moments estimated from the climatological sample via unbiased PWMs.</li>
+        <li><code>lmomco::parglo()</code> fits the three-parameter GLO (&xi;, &alpha;, <em>k</em>).</li>
+        <li>GLO CDF evaluated at current observation → probability <em>p</em>.</li>
+        <li>SPEI = &Phi;<sup>−1</sup>(<em>p</em>).</li>
+      </ol>
+
+      <div class="eq">
+        SPEI = &Phi;<sup>&minus;1</sup>[ F<sub>GLO(&xi;,&alpha;,k)</sub>( P &minus; PET )<sub>W</sub> ]
+      </div>
+
+      <h4>Interpretation</h4>
+      <p>
+        SPEI values follow the same classification thresholds as SPI. Because it incorporates
+        evaporative demand, SPEI typically shows stronger drying trends over recent decades
+        than SPI alone, consistent with the non-stationarity findings of
+        <sup><a href="#ref2">[2]</a></sup>.
+      </p>
+    </section>
+
+    <!-- 4.4 EDDI ─────────────────────────────────────────────────────── -->
+    <section id="eddi">
+      <h3>4.4 Evaporative Demand Drought Index (EDDI)</h3>
+
+      <h4>Motivation</h4>
+      <p>
+        EDDI <sup><a href="#ref7">[7]</a></sup> isolates the atmospheric demand component of
+        the hydrological cycle. Because it is derived solely from PET — without precipitation
+        — it captures early warning signals of drought stress driven by high temperature, low
+        humidity, or high wind speed before soil moisture depletion has occurred.
+      </p>
+
+      <h4>Input</h4>
+      <p>Reference evapotranspiration (<code>pet</code>), in mm/day.</p>
+
+      <h4>Aggregation</h4>
+      <p>Rolling window sums (cumulative evaporative demand) over the same timescales as SPI.</p>
+
+      <h4>Statistical Method</h4>
+      <p>
+        EDDI uses a nonparametric rank-based approach, avoiding assumptions about the
+        distributional form of PET:
+      </p>
+      <ol>
+        <li>
+          <strong>Rank</strong> — Observations within the climatological sample are ranked
+          from highest (rank 1) to lowest. A rank of 1 therefore corresponds to maximum
+          evaporative demand (drought stress).
+        </li>
+        <li>
+          <strong>Tukey plotting position</strong> — Following Hobbins et al. (2016)
+          <sup><a href="#ref7">[7]</a></sup>, the empirical probability is estimated via
+          the Tukey plotting position (Wilks 2011):
+          <div class="eq">
+            p<sub>i</sub> = (i &minus; 1/3) / (n + 1/3)
+          </div>
+          where <em>i</em> is the rank of the aggregated E<sub>0</sub> in the historical
+          time series (i&nbsp;=&nbsp;1 for maximum E<sub>0</sub>) and <em>n</em> is the
+          number of observations in the climatological sample.
+          Because rank 1 = highest demand, <em>p</em> is small for drought conditions.
+        </li>
+        <li>
+          <strong>Inverse normal approximation</strong> — EDDI is derived via the rational
+          approximation of Abramowitz and Stegun (1965)
+          <sup><a href="#ref8">[8]</a></sup>, following the formulation in
+          Vicente-Serrano et al. (2010). For <em>p</em>&nbsp;&le;&nbsp;0.5,
+          <em>W</em>&nbsp;=&nbsp;&radic;(&minus;2&sdot;ln(<em>p</em>)); for
+          <em>p</em>&nbsp;&gt;&nbsp;0.5, <em>p</em> is replaced with 1&minus;<em>p</em>
+          and the sign of EDDI is reversed.
+        </li>
+        <li>
+          <strong>Sign convention</strong> — High PET (low <em>p</em>) produces positive
+          EDDI values, indicating drier-than-normal conditions. Negative values indicate
+          wet anomalies. A zero EDDI indicates that accumulated E<sub>0</sub> equals the
+          climatological median.
+        </li>
+      </ol>
+
+      <div class="eq">
+        EDDI = &Phi;<sup>&minus;1</sup>[ p<sub>Tukey</sub>( E<sub>0,W</sub> ) ]
+      </div>
+
+      <h4>Interpretation</h4>
+      <p>
+        Positive EDDI indicates above-normal atmospheric demand (drought precursor or
+        ongoing drought amplifier). EDDI provides a pure atmospheric signal unconfounded
+        by antecedent precipitation and is particularly valuable for flash drought
+        early warning.
+      </p>
+    </section>
+
+    <!-- 4.5 SVPDI ────────────────────────────────────────────────────── -->
+    <section id="svpdi">
+      <h3>4.5 Standardized VPD Index (SVPDI)</h3>
+
+      <h4>Motivation</h4>
+      <p>
+        Vapor pressure deficit (VPD) is the difference between the saturation vapor pressure
+        and the actual vapor pressure. Elevated VPD increases transpiration demand and can
+        cause stomatal closure even when soil moisture is adequate, directly linking
+        atmospheric drought to vegetation stress. The SVPDI
+        <sup><a href="#ref9">[9]</a></sup> provides a standardized measure
+        of VPD anomaly that is complementary to the precipitation-based indices.
+      </p>
+
+      <h4>Input</h4>
+      <p>Mean daily vapor pressure deficit (<code>vpd</code>), in kPa.</p>
+
+      <h4>Aggregation</h4>
+      <p>Rolling window means over the same timescales as SPI.</p>
+
+      <h4>Statistical Method</h4>
+      <p>
+        Following Nwayor et al. (2024) <sup><a href="#ref9">[9]</a></sup>, VPD is
+        treated as a zero-limited, right-skewed variable and fitted with a Gamma
+        distribution. Nwayor et al. compared Gamma, Weibull, and log-normal distributions
+        via AIC and found the Gamma to be the best-performing distribution for VPD across
+        most locations globally. Our implementation uses L-moment/PWM parameter estimation
+        (rather than MLE) for consistency with the SPI fitting procedure, and applies the
+        same Stagge et al. (2015) <sup><a href="#ref5">[5]</a></sup> mixed-distribution
+        zero handling used for SPI:
+      </p>
+      <ol>
+        <li>
+          <strong>Zero handling (Stagge et al., 2015)</strong> — Zero VPD values (rare
+          but possible at high latitudes or during cold conditions) are handled via the
+          same mixed-distribution approach as SPI. The probability of zero is estimated
+          as <em>p</em><sub>0</sub>&nbsp;=&nbsp;<em>m</em>&nbsp;/&nbsp;(<em>n</em>&nbsp;+&nbsp;1),
+          and zero-valued observations are assigned the center of probability mass:
+          <em>p&#x0304;</em><sub>0</sub>&nbsp;=&nbsp;(<em>m</em>&nbsp;+&nbsp;1)&nbsp;/&nbsp;[2(<em>n</em>&nbsp;+&nbsp;1)].
+          The Gamma distribution is fitted only to positive values.
+        </li>
+        <li>
+          <strong>Gamma fitting</strong> — Unbiased PWMs &rarr; L-moments &rarr;
+          <code>lmomco::pargam()</code> on positive values only.
+        </li>
+        <li>
+          <strong>CDF evaluation</strong> — For non-zero observations:
+          H(x)&nbsp;=&nbsp;<em>p</em><sub>0</sub>&nbsp;+&nbsp;(1&nbsp;&minus;&nbsp;<em>p</em><sub>0</sub>)&nbsp;&sdot;&nbsp;G(x;&nbsp;&alpha;,&nbsp;&beta;).
+          For zero observations: <em>p</em>&nbsp;=&nbsp;<em>p&#x0304;</em><sub>0</sub>.
+        </li>
+        <li>
+          <strong>Normal quantile transform</strong> —
+          SVPDI&nbsp;=&nbsp;&Phi;<sup>&minus;1</sup>(<em>p</em>). No clamping is applied.
+        </li>
+      </ol>
+
+      <div class="eq">
+        SVPDI = &Phi;<sup>&minus;1</sup>[ H( VPD<sub>W</sub> ) ]
+      </div>
+
+      <h4>Interpretation</h4>
+      <p>
+        Positive SVPDI indicates above-normal VPD (heightened atmospheric demand and
+        potential vegetation stress). Negative SVPDI indicates below-normal VPD (reduced
+        atmospheric demand). The sign convention matches that of SPI/SPEI, where positive
+        values represent drier conditions.
+      </p>
+    </section>
+
+    <!-- 4.6 VPD Ancillary ─────────────────────────────────────────── -->
+    <section id="vpd-ancillary">
+      <h3>4.6 Ancillary VPD Metrics</h3>
+
+      <p>
+        Alongside the SVPDI, three ancillary metrics are computed from the rolling VPD means
+        to provide operational context:
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Formula</th>
+              <th>Units</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Percent of Normal (PON)</td>
+              <td>( VPD<sub>W</sub> / &mu;<sub>clim</sub> ) &times; 100</td>
+              <td>%</td>
+              <td>Current VPD as a percentage of the climatological mean</td>
+            </tr>
+            <tr>
+              <td>Departure</td>
+              <td>VPD<sub>W</sub> &minus; &mu;<sub>clim</sub></td>
+              <td>kPa</td>
+              <td>Absolute anomaly relative to climatological mean VPD</td>
+            </tr>
+            <tr>
+              <td>Percentile</td>
+              <td>F&#x0302;<sub>n</sub>( VPD<sub>W</sub> )</td>
+              <td>0&ndash;1</td>
+              <td>Empirical ECDF rank within the climatological sample</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 4.7 Tmax ─────────────────────────────────────────────────────── -->
+    <section id="tmax">
+      <h3>4.7 Maximum Temperature Metrics (Tmax)</h3>
+
+      <h4>Motivation</h4>
+      <p>
+        Anomalously high temperatures amplify drought through increased PET and
+        accelerated snowmelt. A percentile-based temperature index provides context for
+        heat as a drought driver without coupling it to a precipitation signal.
+      </p>
+
+      <h4>Input</h4>
+      <p>Daily maximum air temperature (<code>tmmx</code>), in Kelvin.</p>
+
+      <h4>Aggregation</h4>
+      <p>Rolling window means over the standard timescales.</p>
+
+      <h4>Statistical Method</h4>
+      <p>
+        A nonparametric empirical CDF approach is used; no parametric distribution is assumed:
+      </p>
+      <ol>
+        <li>
+          The empirical cumulative distribution function (ECDF) is constructed from the
+          climatological sample using <code>ecdf()</code> from base R.
+        </li>
+        <li>
+          The ECDF is evaluated at the current observation to produce a probability
+          (0–1 scale), where 1 indicates the warmest value on record within the
+          reference period.
+        </li>
+      </ol>
+
+      <div class="eq">
+        Tmax<sub>pctile</sub> = F&#x0302;<sub>n</sub>( Tmax<sub>W</sub> )
+      </div>
+
+      <h4>Deviation from Normal</h4>
+      <p>
+        In addition to the percentile, the pipeline computes the deviation of the current
+        rolling-mean Tmax from the climatological mean for each timescale:
+      </p>
+      <div class="eq">
+        Tmax<sub>dev</sub> = Tmax<sub>W</sub> &minus; &mu;<sub>clim</sub>
+      </div>
+      <p>
+        Positive values indicate above-normal temperatures; negative values indicate below-normal.
+        Units are K.
+      </p>
+
+      <h4>Interpretation</h4>
+      <p>
+        Values &gt; 0.9 indicate exceptionally warm conditions (top decile of the reference
+        climatology). The output is reported as a 0–1 probability rather than a standardized
+        anomaly, making it directly interpretable as an exceedance percentile.
+      </p>
+    </section>
+  </section>
+
+  <!-- ── Section 5: Spatial Architecture ──────────────────────────── -->
   <section id="spatial">
-    <h2>6. Spatial Processing Architecture</h2>
+    <h2>5. Spatial Processing Architecture</h2>
 
     <h4>Tiling</h4>
     <p>
@@ -901,8 +1069,8 @@ CLIM_PERIODS="full"</code></pre>
         per-tile worker function after the fork.
       </li>
       <li>
-        The number of cores is configurable via the <code>N_CORES</code> environment variable
-        (defaults to <code>parallel::detectCores()</code>). Setting <code>N_CORES=1</code>
+        The number of cores is configurable via the <code>CORES</code> environment variable
+        (defaults to <code>parallel::detectCores()</code>). Setting <code>CORES=1</code>
         runs sequentially with the progress bar still visible.
       </li>
     </ul>
@@ -932,13 +1100,13 @@ CLIM_PERIODS="full"</code></pre>
     <p>
       An optional CONUS land mask derived from Natural Earth state boundary polygons can be
       applied to suppress ocean and non-CONUS pixels in the final mosaic. This is controlled
-      by the <code>APPLY_MASK</code> environment variable.
+      by the <code>CONUS_MASK</code> environment variable.
     </p>
   </section>
 
-  <!-- ── Section 7: Output Products ───────────────────────────────── -->
+  <!-- ── Section 6: Output Products ───────────────────────────────── -->
   <section id="outputs">
-    <h2>7. Output Products</h2>
+    <h2>6. Output Products</h2>
 
     <p>
       All final output layers are written to the <code>conus_drought/</code> directory as
@@ -1009,10 +1177,34 @@ CLIM_PERIODS="full"</code></pre>
             <td>Empirical ECDF</td>
           </tr>
           <tr>
-            <td>Accumulation (precip-in)</td>
+            <td>Accumulation (precip-mm)</td>
             <td>Same as SPI</td>
-            <td>inches</td>
+            <td>mm</td>
             <td>Raw sum</td>
+          </tr>
+          <tr>
+            <td>VPD % of Normal</td>
+            <td>Same as SVPDI</td>
+            <td>% (unbounded)</td>
+            <td>Climatological mean</td>
+          </tr>
+          <tr>
+            <td>VPD Departure</td>
+            <td>Same as SVPDI</td>
+            <td>kPa</td>
+            <td>Climatological mean</td>
+          </tr>
+          <tr>
+            <td>VPD Percentile</td>
+            <td>Same as SVPDI</td>
+            <td>Probability [0, 1]</td>
+            <td>Empirical ECDF</td>
+          </tr>
+          <tr>
+            <td>Tmax deviation</td>
+            <td>Same as Tmax percentile</td>
+            <td>K</td>
+            <td>Climatological mean</td>
           </tr>
         </tbody>
       </table>
@@ -1024,9 +1216,9 @@ CLIM_PERIODS="full"</code></pre>
     </p>
   </section>
 
-  <!-- ── Section 8: Software ───────────────────────────────────────── -->
+  <!-- ── Section 7: Software ───────────────────────────────────────── -->
   <section id="software">
-    <h2>8. Software &amp; Reproducibility</h2>
+    <h2>7. Software &amp; Reproducibility</h2>
 
     <h4>Runtime Environment</h4>
     <p>
@@ -1064,10 +1256,13 @@ CLIM_PERIODS="full"</code></pre>
         <tbody>
           <tr><td><code>START_YEAR</code></td><td><code>1979</code></td><td>First year of gridMET archive to download/use</td></tr>
           <tr><td><code>CLIM_PERIODS</code></td><td><code>rolling:30</code></td><td>Comma-separated reference period specification(s)</td></tr>
-          <tr><td><code>N_CORES</code></td><td>All available</td><td>Number of parallel worker processes</td></tr>
-          <tr><td><code>TILE_DEG</code></td><td><code>2</code></td><td>Tile edge length in degrees</td></tr>
-          <tr><td><code>APPLY_MASK</code></td><td><code>TRUE</code></td><td>Apply CONUS land mask to output mosaics</td></tr>
-          <tr><td><code>DATA_DIR</code></td><td><code>/data</code></td><td>Root directory for input NetCDF cache and outputs</td></tr>
+          <tr><td><code>CORES</code></td><td>All available</td><td>Number of parallel worker processes</td></tr>
+          <tr><td><code>TILE_DX</code></td><td><code>2</code></td><td>Tile width in degrees</td></tr>
+          <tr><td><code>TILE_DY</code></td><td><code>2</code></td><td>Tile height in degrees</td></tr>
+          <tr><td><code>CONUS_MASK</code></td><td><code>1</code></td><td>Apply CONUS land mask (0 = no mask)</td></tr>
+          <tr><td><code>DATA_DIR</code></td><td><code>~/mco-drought-conus-data</code></td><td>Root directory for input NetCDF cache and outputs</td></tr>
+          <tr><td><code>TIMESCALES</code></td><td>all</td><td>Timescales to compute</td></tr>
+          <tr><td><code>TILE_IDS</code></td><td>all tiles</td><td>Subset of tile IDs to process</td></tr>
         </tbody>
       </table>
     </div>
@@ -1083,7 +1278,10 @@ docker compose up
 docker compose run -e CLIM_PERIODS="rolling:30,fixed:1991:2020" mco-drought
 
 # Run with limited cores for debugging
-docker compose run -e N_CORES=4 mco-drought</code></pre>
+docker compose run -e CORES=4 mco-drought
+
+# Quick test (single metric, few tiles)
+docker compose run --rm mco-drought bash docker/run_test.sh</code></pre>
 
     <h4>Source Code</h4>
     <p>
@@ -1093,8 +1291,9 @@ docker compose run -e N_CORES=4 mco-drought</code></pre>
     <pre><code>mco-drought-conus/
 ├── R/
 │   ├── drought-functions.R        # Core statistical fitting functions
+│   ├── pipeline-common.R        # Shared pipeline infrastructure
 │   ├── 1_gridmet-cache.R          # gridMET download and caching
-│   ├── 2_precipitation-metrics.R  # SPI + ancillary metrics
+│   ├── 2_metrics-precip.R         # SPI + ancillary metrics
 │   ├── 3_metrics-spei.R           # SPEI
 │   ├── 4_metrics-eddi.R           # EDDI
 │   ├── 5_metrics-vpd.R            # SVPDI
@@ -1102,14 +1301,16 @@ docker compose run -e N_CORES=4 mco-drought</code></pre>
 ├── docker/
 │   ├── Dockerfile
 │   ├── docker-compose.yml
-│   └── run_once.sh                # Orchestration shell script
+│   ├── run_once.sh                # Orchestration shell script
+│   ├── make_web_cogs.sh         # COG post-processing
+│   └── run_test.sh              # Quick-test runner
 └── docs/
     └── methods.html               # This document</code></pre>
   </section>
 
-  <!-- ── Section 9: References ─────────────────────────────────────── -->
+  <!-- ── Section 8: References ─────────────────────────────────────── -->
   <section id="references">
-    <h2>9. References</h2>
+    <h2>8. References</h2>
 
     <div class="references">
       <ol>
@@ -1120,45 +1321,53 @@ docker compose run -e N_CORES=4 mco-drought</code></pre>
           doi:<a href="https://doi.org/10.1002/joc.3413" target="_blank">10.1002/joc.3413</a>
         </li>
         <li id="ref2">
-          Diffenbaugh NS, et al. Impacts of climate warming on drought variability over the
-          contiguous United States. <em>Nature Communications</em>. 2022;13:1–11.
+          Hoylman ZH, Bocinsky RK, Jencso KG. Drought assessment has been outpaced by
+          climate change: empirical arguments for a paradigm shift. <em>Nature
+          Communications</em>. 2022;13:2715.
           doi:<a href="https://doi.org/10.1038/s41467-022-30316-5" target="_blank">10.1038/s41467-022-30316-5</a>
         </li>
         <li id="ref3">
-          Hoylman ZH, et al. Drought assessment has been outpaced by climate change:
-          empirical arguments for a paradigm shift. <em>Water Resources Research</em>.
-          2023;59:e2023WR036087.
-          doi:<a href="https://doi.org/10.1029/2023WR036087" target="_blank">10.1029/2023WR036087</a>
+          McKee TB, Doesken NJ, Kleist J. The relationship of drought frequency and duration
+          to time scales. <em>Proceedings of the 8th Conference on Applied Climatology</em>.
+          1993;17(22):179–183. American Meteorological Society.
         </li>
         <li id="ref4">
-          Hobbins MT, Wood A, McEvoy DJ, Huntington JL, Morton C, Anderson M, Hain C.
-          The Evaporative Demand Drought Index. Part I: Linking drought evolution to
-          variations in evaporative demand. <em>Journal of Hydrometeorology</em>.
-          2016;17(6):1745–1761.
-          doi:<a href="https://doi.org/10.1175/JHM-D-15-0121.1" target="_blank">10.1175/JHM-D-15-0121.1</a>
+          Hosking JRM. L-moments: analysis and estimation of distributions using linear
+          combinations of order statistics. <em>Journal of the Royal Statistical Society,
+          Series B</em>. 1990;52(1):105–124.
+          doi:<a href="https://doi.org/10.1111/j.2517-6161.1990.tb01775.x" target="_blank">10.1111/j.2517-6161.1990.tb01775.x</a>
         </li>
         <li id="ref5">
+          Stagge JH, Tallaksen LM, Gudmundsson L, Van Loon AF, Stahl K. Candidate
+          distributions for climatological drought indices (SPI and SPEI).
+          <em>International Journal of Climatology</em>. 2015;35(13):4027–4040.
+          doi:<a href="https://doi.org/10.1002/joc.4267" target="_blank">10.1002/joc.4267</a>
+        </li>
+        <li id="ref6">
           Beguería S, Vicente-Serrano SM, Reig F, Latorre B. Standardized precipitation
           evapotranspiration index (SPEI) revisited: parameter fitting, evapotranspiration
           models, tools, datasets and related applications. <em>International Journal of
           Climatology</em>. 2014;34(10):3001–3023.
           doi:<a href="https://doi.org/10.1002/joc.3887" target="_blank">10.1002/joc.3887</a>
         </li>
-        <li id="ref6">
-          Hosking JRM. L-moments: analysis and estimation of distributions using linear
-          combinations of order statistics. <em>Journal of the Royal Statistical Society,
-          Series B</em>. 1990;52(1):105–124.
-          doi:<a href="https://doi.org/10.1111/j.2517-6161.1990.tb01775.x" target="_blank">10.1111/j.2517-6161.1990.tb01775.x</a>
-        </li>
         <li id="ref7">
-          McKee TB, Doesken NJ, Kleist J. The relationship of drought frequency and duration
-          to time scales. <em>Proceedings of the 8th Conference on Applied Climatology</em>.
-          1993;17(22):179–183. American Meteorological Society.
+          Hobbins MT, Wood A, McEvoy DJ, Huntington JL, Morton C, Anderson M, Hain C.
+          The Evaporative Demand Drought Index. Part I: Linking drought evolution to
+          variations in evaporative demand. <em>Journal of Hydrometeorology</em>.
+          2016;17(6):1745–1761.
+          doi:<a href="https://doi.org/10.1175/JHM-D-15-0121.1" target="_blank">10.1175/JHM-D-15-0121.1</a>
         </li>
         <li id="ref8">
-          Wichura MJ. Algorithm AS 241: The percentage points of the normal distribution.
-          <em>Applied Statistics</em>. 1988;37(3):477–484.
-          doi:<a href="https://doi.org/10.2307/2347330" target="_blank">10.2307/2347330</a>
+          Abramowitz M, Stegun IA, eds. <em>Handbook of Mathematical Functions with
+          Formulas, Graphs, and Mathematical Tables</em>. National Bureau of Standards
+          Applied Mathematics Series 55. Washington, DC: U.S. Government Printing Office;
+          1965.
+        </li>
+        <li id="ref9">
+          Nwayor IJ, Robeson SM, Ficklin DL, Maxwell JT. A multiscalar standardized vapor
+          pressure deficit index for drought monitoring and impacts.
+          <em>International Journal of Climatology</em>. 2024;44:5825–5838.
+          doi:<a href="https://doi.org/10.1002/joc.8668" target="_blank">10.1002/joc.8668</a>
         </li>
       </ol>
     </div>

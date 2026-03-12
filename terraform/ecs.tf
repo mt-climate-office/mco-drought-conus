@@ -54,6 +54,7 @@ resource "aws_ecs_task_definition" "pipeline" {
         { name = "GRIDMET_REFRESH_YEARS", value = tostring(var.gridmet_refresh_years) },
         { name = "START_YEAR",            value = tostring(var.start_year) },
         { name = "CLIM_PERIODS",          value = var.clim_periods },
+        { name = "TIMESCALES",            value = var.timescales },
         { name = "AWS_BUCKET",            value = var.s3_bucket_name },
         { name = "AWS_DEFAULT_REGION",    value = var.aws_region },
       ]
