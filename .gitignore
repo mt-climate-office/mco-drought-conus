@@ -4,6 +4,9 @@
 .Ruserdata
 .DS_Store
 
+# Storage browser build output
+storage-browser/dist/
+
 # Terraform
 terraform/.terraform/
 terraform/.terraform.lock.hcl

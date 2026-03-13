@@ -25,9 +25,9 @@ WORKDIR /opt/app
 # Bake R scripts into the image for Fargate (no volume mount available).
 # Local docker-compose runs override this via the source volume mount.
 COPY R/ /opt/app/R/
-COPY docker/run_once.sh /opt/app/run_once.sh
-COPY docker/make_web_cogs.sh /opt/app/docker/make_web_cogs.sh
-COPY docker/run_test.sh /opt/app/docker/run_test.sh
-RUN chmod +x /opt/app/run_once.sh /opt/app/docker/make_web_cogs.sh /opt/app/docker/run_test.sh
+COPY pipeline/run_once.sh /opt/app/run_once.sh
+COPY pipeline/make_web_cogs.sh /opt/app/pipeline/make_web_cogs.sh
+COPY pipeline/run_test.sh /opt/app/pipeline/run_test.sh
+RUN chmod +x /opt/app/run_once.sh /opt/app/pipeline/make_web_cogs.sh /opt/app/pipeline/run_test.sh
 
 CMD ["/opt/app/run_once.sh"]
