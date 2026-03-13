@@ -59,6 +59,8 @@ All outputs land in `$DATA_DIR/derived/conus_drought/` as COG GeoTIFFs.
 
 ```
 mco-drought-conus/
+├── Dockerfile
+├── docker-compose.yml
 ├── R/
 │   ├── 1_gridmet-cache.R
 │   ├── 2_metrics-precip.R
@@ -68,15 +70,15 @@ mco-drought-conus/
 │   ├── 6_metrics-tmax.R
 │   ├── drought-functions.R
 │   └── pipeline-common.R
-├── docker/
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   ├── run_once.sh
-│   ├── make_web_cogs.sh
-│   └── run_test.sh
+├── pipeline/
+│   ├── run_once.sh        # Container entry point — orchestrates the full pipeline
+│   ├── make_web_cogs.sh   # Converts COGs to web-optimized COGs (called by run_once.sh)
+│   └── run_test.sh        # Lightweight test harness for development
 ├── scripts/
-│   └── ecr-push.sh            # Build and push Docker image to ECR
-├── terraform/                 # AWS infrastructure (see Cloud Architecture below)
+│   ├── ecr-push.sh                  # Build and push Docker image to ECR
+│   └── deploy-storage-browser.sh    # Build and deploy the storage browser web app
+├── storage-browser/       # React web app for browsing S3 outputs
+├── terraform/             # AWS infrastructure (see Cloud Architecture below)
 │   ├── main.tf
 │   ├── variables.tf
 │   ├── locals.tf
@@ -89,6 +91,8 @@ mco-drought-conus/
 │   ├── scheduler.tf
 │   ├── cloudwatch.tf
 │   └── terraform.tfvars.example
+├── docs/
+│   └── methods.html
 ├── .gitignore
 └── README.md
 ```
@@ -96,13 +100,19 @@ mco-drought-conus/
 Expected data layout (outside the repo, mounted at runtime):
 
 ```
-$DATA_DIR/                         # e.g. ~/mco-drought-conus-data
-├── raw/                           # GridMET .nc files (pr, pet, vpd, tmmx)
-├── interim/                       # intermediate tiles (removed if KEEP_TILES=0)
+$DATA_DIR/                              # e.g. ~/mco-drought-conus-data
+├── raw/                                # GridMET .nc files (pr, pet, vpd, tmmx)
+├── interim/                            # (unused)
 ├── derived/
-│   └── conus_drought/             # final COG GeoTIFFs
-└── tmp/                           # scratch space for terra / R
+│   ├── conus_drought/                  # final COG GeoTIFFs (date-stamped filenames)
+│   ├── conus_drought_latest/           # same files, dates stripped from filenames
+│   ├── conus_drought_web/              # web-optimized COGs (date-stamped)
+│   └── conus_drought_web_latest/       # web-optimized COGs, dates stripped
+└── tmp/                                # scratch space for terra / R
 ```
+
+Each `conus_drought*/` directory contains a `manifest.csv` recording the data date
+for each dataset, and a `latest-date.txt` with the most recent date across all datasets.
 
 ---
 
@@ -116,25 +126,21 @@ git clone https://github.com/mt-climate-office/mco-drought-conus.git
 cd mco-drought-conus
 
 # 2. Build the image (only needed once, or after Dockerfile/R script changes)
-docker compose -f docker/docker-compose.yml build
+docker compose build
 
 # 3. Run — same command every time, including first run
-docker compose -f docker/docker-compose.yml up
+docker compose up
 ```
 
 All processed data is written to `~/mco-drought-conus-data` on your host (outside the repo,
 never tracked by git). Override the data directory with the `DATA_DIR` environment variable:
 
 ```bash
-DATA_DIR=/Volumes/my-drive/drought-data docker compose -f docker/docker-compose.yml up
+DATA_DIR=/Volumes/my-drive/drought-data docker compose up
 ```
 
 S3 sync is **automatically skipped** in local runs — `AWS_BUCKET` is not set by
 docker-compose, so no credentials or AWS access are required.
-
-> **Note:** The build context is the repo root (not `docker/`), so Docker can copy the `R/`
-> scripts into the image. The source volume mount uses a relative path (`..`) so the compose
-> file works regardless of where the repo is cloned.
 
 The container mounts two host directories:
 
@@ -189,8 +195,8 @@ Each spec produces a slug appended to all output filenames:
 
 | Spec | Description | Output slug |
 |------|-------------|-------------|
-| `rolling:N` | Last N years from current date | `rolling_N` |
-| `fixed:YYYY:YYYY` | Fixed year range (inclusive) | `fixed_YYYY_YYYY` |
+| `rolling:N` | Last N years from current date | `rolling-N` |
+| `fixed:YYYY:YYYY` | Fixed year range (inclusive) | `fixed-YYYY-YYYY` |
 | `full` | All years from `START_YEAR` to present | `full` |
 
 Multiple specs are comma-separated. Each produces its own set of output files:
@@ -211,30 +217,30 @@ CLIM_PERIODS: "full"
 
 Output files in `$DATA_DIR/derived/conus_drought/` are slug-tagged, e.g.:
 ```
-spi_30d_rolling_30.tif
-spi_30d_fixed_1991_2020.tif
-spei_15d_rolling_30.tif
+spi_30d_rolling-30_2026-03-10.tif
+spi_30d_fixed-1991-2020_2026-03-10.tif
+spei_15d_rolling-30_2026-03-10.tif
 ```
 
 ---
 
 ## Quick Test
 
-A lightweight test script (`docker/run_test.sh`) runs a minimal subset of the pipeline for
+A lightweight test script (`pipeline/run_test.sh`) runs a minimal subset of the pipeline for
 fast validation — useful for development, CI, or verifying a new Docker build.
 
 ```bash
 # Local (outside Docker):
-bash docker/run_test.sh
+bash pipeline/run_test.sh
 
 # Inside Docker:
-docker compose -f docker/docker-compose.yml run --rm mco-drought bash docker/run_test.sh
+docker compose run --rm mco-drought bash pipeline/run_test.sh
 
 # Test SPEI with specific timescales:
-METRIC=spei TIMESCALES=30,60,90 bash docker/run_test.sh
+METRIC=spei TIMESCALES=30,60,90 bash pipeline/run_test.sh
 
 # Test all metrics on a few tiles:
-METRIC=all TILE_IDS=30,31,32 bash docker/run_test.sh
+METRIC=all TILE_IDS=30,31,32 bash pipeline/run_test.sh
 ```
 
 Configurable via environment variables: `METRIC` (default: `precip`), `TIMESCALES` (default: `30`),
@@ -252,14 +258,14 @@ All infrastructure is managed with Terraform in the `terraform/` directory.
 ### Architecture Overview
 
 ```
-EventBridge Scheduler (6 PM Mountain)
+EventBridge Scheduler (10 PM Mountain)
         │
         ▼
   ECS Fargate Task  ──────────────────────────────────────────┐
   (8 vCPU / 32 GB / 200 GiB ephemeral)                       │
         │                                                      │
         ▼                                                      ▼
-  S3: mco-gridmet/cache/          (restore at start / save at end)
+  S3: mco-gridmet/raw/            (restore at start / save at end)
   S3: mco-gridmet/derived/        (final COG GeoTIFF outputs, public)
         │
   ECR: mco-drought-conus          (Docker image)
@@ -274,7 +280,7 @@ EventBridge Scheduler (6 PM Mountain)
 | ECR repository | `mco-drought-conus` | Docker image registry |
 | ECS cluster | `mco-drought-conus` | Fargate compute |
 | ECS task definition | `mco-drought-conus` | 8 vCPU, 32 GB RAM, 200 GiB ephemeral |
-| EventBridge Scheduler | `mco-drought-conus-nightly` | `cron(0 18 * * ? *)` / `America/Denver` |
+| EventBridge Scheduler | `mco-drought-conus-nightly` | `cron(0 22 * * ? *)` / `America/Denver` |
 | CloudWatch log group | `/ecs/mco-drought-conus` | Pipeline logs (90-day retention) |
 | IAM roles | `mco-drought-conus-task`, `-task-execution`, `-scheduler` | Least-privilege permissions |
 
@@ -282,11 +288,21 @@ EventBridge Scheduler (6 PM Mountain)
 
 ```
 s3://mco-gridmet/
-├── cache/
-│   ├── raw/          # GridMET annual NetCDF files (pr, pet, vpd, tmmx)
-│   └── interim/      # Processed intermediate tiles
+├── raw/                               # GridMET annual NetCDF files (pr, pet, vpd, tmmx)
 └── derived/
-    └── conus_drought/  # Final COG GeoTIFFs (public read)
+    ├── conus_drought/
+    │   ├── {YYYY-MM-DD}/              # dated archive — one per pipeline run
+    │   │   ├── spi_30d_rolling-30_{YYYY-MM-DD}.tif
+    │   │   ├── manifest.csv           # per-dataset data dates for this archive
+    │   │   └── ...
+    │   └── latest/                    # operational copy — dateless filenames, always current
+    │       ├── spi_30d_rolling-30.tif
+    │       ├── manifest.csv
+    │       ├── latest-date.txt
+    │       └── ...
+    └── conus_drought_web/             # web-optimized COGs (mirrors layout above)
+        ├── {YYYY-MM-DD}/
+        └── latest/
 ```
 
 ### Caching Strategy
@@ -295,7 +311,7 @@ Because Fargate ephemeral storage is wiped when a task stops, GridMET data is ca
 
 | Run | Behavior |
 |-----|----------|
-| Cold start (first ever) | Downloads ~15–20 GB from GridMET servers; saves to `s3://mco-gridmet/cache/` |
+| Cold start (first ever) | Downloads ~15–20 GB from GridMET servers; saves to `s3://mco-gridmet/raw/` |
 | Every subsequent run | Restores cache from S3 (~2–3 min); refreshes last 2 years from GridMET; saves updates back |
 
 ---
@@ -416,7 +432,7 @@ Raw climate data comes from **GridMET** (Northwest Knowledge Network, University
 - R packages: `terra`, `ncdf4`, `sf`, `lmomco`, `fs`, `purrr`, `readr`, `tibble`,
   `rnaturalearth`, `rnaturalearthhires`, `gdalUtilities`, `raster`, `pbmcapply`
 
-Set the required environment variables, then run `docker/run_once.sh` or invoke each script
+Set the required environment variables, then run `pipeline/run_once.sh` or invoke each script
 individually. Data writes to `DATA_DIR` (outside the repo by default — not git-tracked):
 
 ```bash
@@ -424,7 +440,7 @@ export PROJECT_DIR=~/git/mt-climate-office/mco-drought-conus
 export DATA_DIR=~/mco-drought-conus-data   # anywhere outside the repo
 export CORES=4
 
-bash docker/run_once.sh   # full pipeline
+bash pipeline/run_once.sh   # full pipeline
 
 # or run individual scripts:
 Rscript R/2_metrics-precip.R

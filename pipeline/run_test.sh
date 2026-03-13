@@ -6,7 +6,7 @@ set -euo pipefail
 # ---- Help --------------------------------------------------------------------
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'USAGE'
-Usage: ./docker/run_test.sh
+Usage: ./pipeline/run_test.sh
 
 Environment variables (all optional):
   METRIC        Which metric to run: precip, spei, eddi, vpd, tmax, all
@@ -19,16 +19,16 @@ Environment variables (all optional):
 
 Examples:
   # Minimal local test (precip, 30-day, 3 tiles):
-  ./docker/run_test.sh
+  ./pipeline/run_test.sh
 
   # Test SPEI with more timescales:
-  METRIC=spei TIMESCALES=30,60,90 ./docker/run_test.sh
+  METRIC=spei TIMESCALES=30,60,90 ./pipeline/run_test.sh
 
   # Test all metrics, 1 tile:
-  METRIC=all TILE_IDS=50 ./docker/run_test.sh
+  METRIC=all TILE_IDS=50 ./pipeline/run_test.sh
 
   # Inside Docker:
-  docker compose run --rm mco-drought bash docker/run_test.sh
+  docker compose run --rm mco-drought bash pipeline/run_test.sh
 USAGE
   exit 0
 fi

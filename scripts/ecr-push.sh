@@ -22,7 +22,7 @@ echo "=== Building image (context: ${REPO_ROOT}) ==="
 docker build \
   --platform linux/amd64 \
   --tag "${REPO_NAME}:${IMAGE_TAG}" \
-  --file "${REPO_ROOT}/docker/Dockerfile" \
+  --file "${REPO_ROOT}/Dockerfile" \
   "${REPO_ROOT}"
 
 echo "=== Tagging and pushing ==="

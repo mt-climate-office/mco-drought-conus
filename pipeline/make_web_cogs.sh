@@ -115,10 +115,13 @@ ds = None
   echo "  [${n_done}/${#tif_files[@]}] $base"
 done
 
-# Copy timestamp metadata files
+# Copy timestamp metadata files and manifest
 for txt in "$SRC_DIR"/*_time.txt; do
   if [ -f "$txt" ]; then cp "$txt" "$WEB_DIR/"; fi
 done
+if [ -f "$SRC_DIR/manifest.csv" ]; then
+  cp "$SRC_DIR/manifest.csv" "$WEB_DIR/manifest.csv"
+fi
 
 echo ""
 echo "=== $(date) — Done. ${n_done} web COGs written to $WEB_DIR ==="

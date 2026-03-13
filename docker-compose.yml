@@ -3,8 +3,8 @@ services:
     user: "mco-drought"
     platform: linux/amd64
     build:
-      context: ..           # repo root — needed so COPY R/ works in Dockerfile
-      dockerfile: docker/Dockerfile
+      context: .
+      dockerfile: Dockerfile
     image: mco-drought-pipeline:latest
     container_name: mco-drought
     environment:
@@ -24,6 +24,6 @@ services:
     mem_limit: 30g
     mem_reservation: 8g
     volumes:
-      - ..:/home/mco-drought/mco-drought-conus:rw                          # repo root (relative to this file)
+      - .:/home/mco-drought/mco-drought-conus:rw                           # repo root
       - ${DATA_DIR:-${HOME}/mco-drought-conus-data}:/home/mco-drought/mco-drought-conus-data:rw
     restart: "no"
