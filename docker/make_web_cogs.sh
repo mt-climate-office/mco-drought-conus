@@ -66,10 +66,18 @@ for src_tif in "${tif_files[@]}"; do
 
   # 3 — Scale to Int16 (multiply by 100, nodata=-9999 fits in Int16 range).
   #     SCALE=0.01 metadata lets clients recover original float values automatically.
-  gdal_calc.py -A "$tmp_norm" \
-    --outfile="$tmp_tif" \
-    --calc="numpy.where(A==-9999, numpy.int16(-9999), numpy.round(A.astype(numpy.float64) * 100).astype(numpy.int16))" \
-    --type=Int16 --NoDataValue=-9999 --overwrite --quiet
+  #     precip-mm accumulations can exceed Int16 max (32767 → 327.67mm ≈ 12.9in), so use Int32.
+  if [[ "$base" == precip-mm_* ]]; then
+    gdal_calc.py -A "$tmp_norm" \
+      --outfile="$tmp_tif" \
+      --calc="numpy.where(A==-9999, numpy.int32(-9999), numpy.round(A.astype(numpy.float64) * 100).astype(numpy.int32))" \
+      --type=Int32 --NoDataValue=-9999 --overwrite --quiet
+  else
+    gdal_calc.py -A "$tmp_norm" \
+      --outfile="$tmp_tif" \
+      --calc="numpy.where(A==-9999, numpy.int16(-9999), numpy.round(A.astype(numpy.float64) * 100).astype(numpy.int16))" \
+      --type=Int16 --NoDataValue=-9999 --overwrite --quiet
+  fi
   rm -f "$tmp_norm"
 
   # 4 — Stamp band metadata on the intermediate GeoTIFF BEFORE COG conversion.
