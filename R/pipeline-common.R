@@ -278,6 +278,40 @@ build_tiles_from_extent = function(dx = 2, dy = 2, r_for_align, edge_buf_deg = N
   tiles
 }
 
+#' Subdivide a single tile sf polygon into 4 equal quadrants.
+#'
+#' Used for retry-after-failure: if a tile fails (e.g. OOM), splitting it into
+#' smaller pieces reduces per-worker memory. Each sub-tile gets an ID like
+#' "42_1", "42_2", etc. (parent ID + quadrant index).
+#'
+#' @param tile_sf Single-row sf object with tile_id and polygon geometry.
+#' @return An sf data frame with 4 rows (quadrants), each with a sub-tile ID.
+.subdivide_tile = function(tile_sf) {
+  bb   = sf::st_bbox(tile_sf)
+  xmid = (bb["xmin"] + bb["xmax"]) / 2
+  ymid = (bb["ymin"] + bb["ymax"]) / 2
+  eps  = 1e-6
+
+  make_quad = function(xL, xR, yB, yT) {
+    sf::st_polygon(list(matrix(
+      c(xL, yB, xR, yB, xR, yT, xL, yT, xL, yB), ncol = 2, byrow = TRUE
+    )))
+  }
+
+  quads = list(
+    make_quad(bb["xmin"] - eps, xmid + eps, bb["ymin"] - eps, ymid + eps),  # SW
+    make_quad(xmid - eps, bb["xmax"] + eps, bb["ymin"] - eps, ymid + eps),  # SE
+    make_quad(bb["xmin"] - eps, xmid + eps, ymid - eps, bb["ymax"] + eps),  # NW
+    make_quad(xmid - eps, bb["xmax"] + eps, ymid - eps, bb["ymax"] + eps)   # NE
+  )
+
+  parent_id = tile_sf$tile_id
+  sf::st_sf(
+    tile_id  = paste0(parent_id, "_", 1:4),
+    geometry = sf::st_sfc(quads, crs = 4326)
+  )
+}
+
 # ---- E. Climatology ----------------------------------------------------------
 
 #' Parse the CLIM_PERIODS environment variable into a list of climatology specs.
@@ -809,6 +843,9 @@ compute_metrics_generic = function(vals, dates, base_r, timescale_info,
         }
       }
 
+      # Scrub Inf/NaN to NA (can arise from division by zero in PON/percentile)
+      out_vals[!is.finite(out_vals)] = NA_real_
+
       r = base_r
       names(r) = spec$band_name
       r = terra::setValues(r, out_vals)
@@ -1323,11 +1360,134 @@ run_metric_pipeline = function(config) {
   wrote_ct  = vapply(res, function(x) as.integer(x$wrote), 0L)
   all_paths = unlist(lapply(res, `[[`, "paths"), use.names = FALSE)
 
-  errs = unique(vapply(res[!ok_vec], function(x) as.character(x$msg)[1], ""))
-  errs = errs[nzchar(errs)]
-
   message(sprintf("Tiles OK: %d/%d; total files written: %d",
                   sum(ok_vec), n_tiles, sum(wrote_ct)))
+
+  # ---- Retry failed tiles, then subdivide if still failing -------------------
+  failed_idx = which(!ok_vec)
+  if (length(failed_idx) > 0) {
+    failed_ids = vapply(res[failed_idx], function(x) as.character(x$tile_id), "")
+    failed_msgs = vapply(res[failed_idx], function(x) as.character(x$msg)[1], "")
+    message(sprintf("Retrying %d failed tile(s): %s",
+                    length(failed_idx), paste(failed_ids, collapse = ", ")))
+    for (fm in unique(failed_msgs[nzchar(failed_msgs)])) message("  reason: ", fm)
+
+    # Pass 1: simple retry (catches transient errors)
+    # Build a new tiles_list for retry so indices map correctly
+    retry_tiles = tiles_list[failed_idx]
+    retry_worker = function(i) {
+      tile = retry_tiles[[i]]
+      tryCatch({
+        if (config$input_mode == "single") {
+          var = config$raw_vars[[1]]
+          io  = read_tile_single_var(
+            tile_sf = tile, nc_files = nc_files, dates = dates,
+            nc_varname = var$nc_varname, terra_temp_dir = paths$terra_temp
+          )
+        } else {
+          io = read_tile_two_var(
+            tile_sf = tile, files1 = aln$files1, files2 = aln$files2,
+            varname1 = config$raw_vars[[1]]$nc_varname,
+            varname2 = config$raw_vars[[2]]$nc_varname,
+            idx1 = aln$idx1, idx2 = aln$idx2, dates = dates,
+            combine_fn = config$combine_fn %||% function(a, b) a - b,
+            terra_temp_dir = paths$terra_temp
+          )
+        }
+        .worker_compute_and_write(io, tile, clim_periods, dates, timescale_info,
+                                  config$metric_specs, config$agg_fn,
+                                  paths$tiles_root, paths$r_temp, last_date_iso)
+      },
+      error = function(e) list(
+        ok = FALSE, wrote = 0L, paths = character(0),
+        tile_id = tile$tile_id, msg = conditionMessage(e)
+      ))
+    }
+    retry_raw = .run_workers_generic(retry_tiles, retry_worker, cores)
+    retry_res = .normalize_results(retry_raw)
+
+    retry_ok = vapply(retry_res, function(x) isTRUE(x$ok), TRUE)
+    if (any(retry_ok)) {
+      n_recovered = sum(retry_ok)
+      message(sprintf("  Retry recovered %d/%d tile(s)", n_recovered, length(failed_idx)))
+      retry_paths = unlist(lapply(retry_res[retry_ok], `[[`, "paths"), use.names = FALSE)
+      all_paths   = c(all_paths, retry_paths)
+      wrote_ct[failed_idx[retry_ok]] = vapply(retry_res[retry_ok],
+                                               function(x) as.integer(x$wrote), 0L)
+      ok_vec[failed_idx[retry_ok]]   = TRUE
+    }
+
+    # Pass 2: subdivide tiles that still fail
+    still_failed = failed_idx[!retry_ok]
+    if (length(still_failed) > 0) {
+      message(sprintf("Subdividing %d tile(s) that failed retry...", length(still_failed)))
+      sub_tiles_list = list()
+      for (si in still_failed) {
+        sub_4 = .subdivide_tile(tiles_list[[si]])
+        for (q in seq_len(nrow(sub_4))) sub_tiles_list[[length(sub_tiles_list) + 1]] = sub_4[q, ]
+      }
+
+      # Build a worker that takes a sub-tile directly (same closure vars as worker_fn)
+      sub_worker_fn = function(j) {
+        tile = sub_tiles_list[[j]]
+        tryCatch({
+          if (config$input_mode == "single") {
+            var = config$raw_vars[[1]]
+            io  = read_tile_single_var(
+              tile_sf        = tile,
+              nc_files       = nc_files,
+              dates          = dates,
+              nc_varname     = var$nc_varname,
+              terra_temp_dir = paths$terra_temp
+            )
+          } else {
+            io = read_tile_two_var(
+              tile_sf        = tile,
+              files1         = aln$files1,
+              files2         = aln$files2,
+              varname1       = config$raw_vars[[1]]$nc_varname,
+              varname2       = config$raw_vars[[2]]$nc_varname,
+              idx1           = aln$idx1,
+              idx2           = aln$idx2,
+              dates          = dates,
+              combine_fn     = config$combine_fn %||% function(a, b) a - b,
+              terra_temp_dir = paths$terra_temp
+            )
+          }
+          .worker_compute_and_write(io, tile, clim_periods, dates, timescale_info,
+                                    config$metric_specs, config$agg_fn,
+                                    paths$tiles_root, paths$r_temp,
+                                    last_date_iso)
+        },
+        error = function(e) list(
+          ok = FALSE, wrote = 0L, paths = character(0),
+          tile_id = tile$tile_id, msg = conditionMessage(e)
+        ))
+      }
+
+      sub_raw = .run_workers_generic(sub_tiles_list, sub_worker_fn, cores)
+      sub_res = .normalize_results(sub_raw)
+      sub_ok  = vapply(sub_res, function(x) isTRUE(x$ok), TRUE)
+
+      n_sub_ok   = sum(sub_ok)
+      n_sub_fail = sum(!sub_ok)
+      message(sprintf("  Sub-tiles: %d/%d OK", n_sub_ok, length(sub_res)))
+
+      sub_paths = unlist(lapply(sub_res[sub_ok], `[[`, "paths"), use.names = FALSE)
+      all_paths = c(all_paths, sub_paths)
+
+      if (n_sub_fail > 0) {
+        sub_errs = unique(vapply(sub_res[!sub_ok], function(x) as.character(x$msg)[1], ""))
+        sub_errs = sub_errs[nzchar(sub_errs)]
+        message("  Sub-tile errors:")
+        for (e in utils::head(sub_errs, 12)) message("    \u2022 ", e)
+      }
+    }
+  }
+
+  # Final summary
+  errs = unique(vapply(res[!ok_vec], function(x) as.character(x$msg)[1], ""))
+  errs = errs[nzchar(errs)]
 
   skipped_msgs = unique(vapply(res[ok_vec], function(x) as.character(x$msg)[1], ""))
   skipped_msgs = skipped_msgs[nzchar(skipped_msgs)]
@@ -1337,7 +1497,7 @@ run_metric_pipeline = function(config) {
   }
 
   if (length(errs) > 0) {
-    message("Errors:")
+    message("Remaining errors after retry/subdivide:")
     for (e in utils::head(errs, 12)) message("  \u2022 ", e)
   }
 
