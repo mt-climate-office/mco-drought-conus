@@ -64,10 +64,13 @@ for src_tif in "${tif_files[@]}"; do
   tmp_norm="$TMPDIR/webcog_norm_$$_${base}"
   gdalwarp -q -srcnodata nan -dstnodata -9999 "$src_tif" "$tmp_norm"
 
-  # 3 — Scale to Int16 (multiply by 100, nodata=-9999 fits in Int16 range).
-  #     SCALE=0.01 metadata lets clients recover original float values automatically.
-  #     precip-mm accumulations can exceed Int16 max (32767 → 327.67mm ≈ 12.9in), so use Int32.
-  if [[ "$base" == precip-mm_* ]]; then
+  # 3 — Scale to integer (multiply by 100). Most metrics fit in Int16 (-327..327),
+  #     but precip ancillary metrics can exceed that range:
+  #       precip-mm:  up to ~16,000 mm at long timescales
+  #       precip-pon: up to ~500% of normal
+  #       precip-dev: -1800 to +2700 mm at long timescales
+  #     These use Int32 instead (-21M..21M range).
+  if [[ "$base" == precip-mm_* || "$base" == precip-pon_* || "$base" == precip-dev_* ]]; then
     gdal_calc.py -A "$tmp_norm" \
       --outfile="$tmp_tif" \
       --calc="numpy.where(A==-9999, numpy.int32(-9999), numpy.round(A.astype(numpy.float64) * 100).astype(numpy.int32))" \
