@@ -65,12 +65,13 @@ for src_tif in "${tif_files[@]}"; do
   gdalwarp -q -srcnodata nan -dstnodata -9999 "$src_tif" "$tmp_norm"
 
   # 3 — Scale to integer (multiply by 100). Most metrics fit in Int16 (-327..327),
-  #     but precip ancillary metrics can exceed that range:
+  #     but ancillary metrics can exceed that range:
   #       precip-mm:  up to ~16,000 mm at long timescales
-  #       precip-pon: up to ~500% of normal
-  #       precip-dev: -1800 to +2700 mm at long timescales
+  #       precip-pon: up to ~720% of normal
+  #       precip-dev: -1800 to +3100 mm at long timescales
+  #       vpd-pon:    up to ~356% of normal
   #     These use Int32 instead (-21M..21M range).
-  if [[ "$base" == precip-mm_* || "$base" == precip-pon_* || "$base" == precip-dev_* ]]; then
+  if [[ "$base" == precip-mm_* || "$base" == precip-pon_* || "$base" == precip-dev_* || "$base" == vpd-pon_* ]]; then
     gdal_calc.py -A "$tmp_norm" \
       --outfile="$tmp_tif" \
       --calc="numpy.where(A==-9999, numpy.int32(-9999), numpy.round(A.astype(numpy.float64) * 100).astype(numpy.int32))" \
