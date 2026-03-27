@@ -91,6 +91,9 @@ mco-drought-conus/
 │   ├── scheduler.tf
 │   ├── cloudwatch.tf
 │   └── terraform.tfvars.example
+├── .github/
+│   └── workflows/
+│       └── docker-publish.yml  # CI/CD: build and push Docker image to ECR on push to main
 ├── docs/
 │   └── methods.html
 ├── .gitignore
@@ -383,7 +386,22 @@ aws ecs describe-tasks \
   --query 'tasks[0].{status:lastStatus,stopReason:stoppedReason}'
 ```
 
-### Redeploying After Code Changes
+### CI/CD (GitHub Actions)
+
+Pushing to `main` automatically builds and pushes the Docker image to ECR when any of the
+following paths change: `Dockerfile`, `R/**`, `pipeline/**`, `scripts/**`.
+
+The workflow (`.github/workflows/docker-publish.yml`) authenticates via OIDC — no AWS keys
+are stored in GitHub. Images are tagged both `:latest` and `:<git-sha>`. Because the ECS task
+definition always pulls `:latest`, the next nightly run picks up the new image automatically.
+
+You can also trigger a build manually from the
+[Actions tab](https://github.com/mt-climate-office/mco-drought-conus/actions) without pushing
+a commit.
+
+### Redeploying After Code Changes (Manual)
+
+If you need to push an image outside of CI (e.g. from a feature branch):
 
 ```bash
 aws sso login --profile mco   # if SSO session has expired
