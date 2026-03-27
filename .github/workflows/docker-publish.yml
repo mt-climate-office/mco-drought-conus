@@ -1,0 +1,48 @@
+name: Build and push Docker image to ECR
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - "R/**"
+      - "pipeline/**"
+      - "scripts/**"
+      - ".github/workflows/docker-publish.yml"
+  workflow_dispatch:  # allow manual trigger from GitHub UI
+
+permissions:
+  id-token: write  # required for OIDC authentication
+  contents: read
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REPOSITORY: mco-drought-conus
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::202533506375:role/github-actions-ecr-push
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
