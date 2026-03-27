@@ -42,7 +42,7 @@
 # TIMESCALES     — comma-separated day counts or "wy","ytd" (default: 15,30,...,wy,ytd)
 # CLIM_PERIODS   — climatology spec (default: "rolling:30")
 # TILE_IDS       — comma-separated tile IDs to process (default: all)
-# TILE_DX/DY     — tile size in degrees (default: 2)
+# TILE_DX/DY     — tile size in degrees (default: 1)
 # CONUS_MASK     — clip tiles to CONUS boundary (default: 0)
 # KEEP_TILES     — retain intermediate tile files after mosaic (default: 0)
 # R_TEMP_DIR     — temp directory for R scratch files
@@ -1171,8 +1171,8 @@ run_metric_pipeline = function(config) {
     GDAL_NUM_THREADS     = "1"
   )
 
-  dx           = as.numeric(Sys.getenv("TILE_DX",      unset = "2"))
-  dy           = as.numeric(Sys.getenv("TILE_DY",      unset = "2"))
+  dx           = as.numeric(Sys.getenv("TILE_DX",      unset = "1"))
+  dy           = as.numeric(Sys.getenv("TILE_DY",      unset = "1"))
   periods_env  = Sys.getenv("PERIODS_DAYS", unset = "")
   tile_ids_env = Sys.getenv("TILE_IDS",     unset = "")
 
