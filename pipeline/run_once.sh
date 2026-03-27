@@ -8,8 +8,8 @@ export DATA_DIR="${DATA_DIR:-$HOME/mco-drought-conus-data}"
 export CORES="${CORES:-12}"
 export KEEP_TILES="${KEEP_TILES:-0}"
 export CONUS_MASK="${CONUS_MASK:-1}"
-export TILE_DX="${TILE_DX:-2}"
-export TILE_DY="${TILE_DY:-2}"
+export TILE_DX="${TILE_DX:-1}"
+export TILE_DY="${TILE_DY:-1}"
 
 export START_YEAR="${START_YEAR:-1979}"
 
