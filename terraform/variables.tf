@@ -109,7 +109,7 @@ variable "start_year" {
 variable "clim_periods" {
   description = "Climatological reference period specs (CLIM_PERIODS). Comma-separated; e.g. 'rolling:30,full'"
   type        = string
-  default     = "rolling:30,full"
+  default     = "rolling:30,full,fixed:1991:2020"
 }
 
 variable "timescales" {
