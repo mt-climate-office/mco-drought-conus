@@ -11,12 +11,13 @@
 source(file.path(Sys.getenv("PROJECT_DIR", unset = "~/mco-drought-conus"), "R", "pipeline-common.R"))
 
 # ---- EDDI-specific metric wrapper -------------------------------------------
-.eddi_from_nonparam = function(x_vec, clim_len) {
-  x = as.numeric(x_vec)
-  x = x[is.finite(x)]
-  if (length(x) < 3 || stats::sd(x) == 0) return(NA_real_)
+.eddi_from_nonparam = function(ref_dist, current_val, clim_len) {
+  ref = as.numeric(ref_dist)
+  ref = ref[is.finite(ref)]
+  if (length(ref) < 3 || stats::sd(ref) == 0) return(NA_real_)
+  if (!is.finite(current_val)) return(NA_real_)
   fn  = .require_fun("nonparam_fit_eddi")
-  val = try(fn(x, climatology_length = clim_len), silent = TRUE)
+  val = try(fn(ref, current_val, climatology_length = clim_len), silent = TRUE)
   if (inherits(val, "try-error") || !is.finite(val)) return(NA_real_)
   as.numeric(val)
 }

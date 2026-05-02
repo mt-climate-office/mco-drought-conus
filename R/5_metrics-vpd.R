@@ -12,12 +12,13 @@
 source(file.path(Sys.getenv("PROJECT_DIR", unset = "~/mco-drought-conus"), "R", "pipeline-common.R"))
 
 # ---- VPD-specific metric wrappers -------------------------------------------
-.svpdi_from_gamma = function(x_vec, clim_len) {
-  x = as.numeric(x_vec)
-  x = x[is.finite(x)]
-  if (length(x) < 3 || all(x == 0) || stats::sd(x) == 0) return(NA_real_)
+.svpdi_from_gamma = function(ref_dist, current_val, clim_len) {
+  ref = as.numeric(ref_dist)
+  ref = ref[is.finite(ref)]
+  if (length(ref) < 3 || all(ref == 0) || stats::sd(ref) == 0) return(NA_real_)
+  if (!is.finite(current_val)) return(NA_real_)
   fn  = .require_fun("gamma_fit_vpdi")
-  val = try(fn(x, export_opts = "SVPDI", return_latest = TRUE,
+  val = try(fn(ref, current_val, export_opts = "SVPDI",
                climatology_length = clim_len), silent = TRUE)
   if (inherits(val, "try-error") || !is.finite(val)) return(NA_real_)
   as.numeric(val)

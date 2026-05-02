@@ -10,8 +10,8 @@
 source(file.path(Sys.getenv("PROJECT_DIR", unset = "~/mco-drought-conus"), "R", "pipeline-common.R"))
 
 # ---- Tmax-specific metric wrapper -------------------------------------------
-.pctile_latest_tmax = function(x_vec, clim_len) {
-  val = try(compute_percentile(x_vec, clim_len), silent = TRUE)
+.pctile_latest_tmax = function(ref_dist, current_val, clim_len) {
+  val = try(compute_percentile(ref_dist, current_val, clim_len), silent = TRUE)
   if (inherits(val, "try-error") || !is.finite(val)) NA_real_ else as.numeric(val)
 }
 

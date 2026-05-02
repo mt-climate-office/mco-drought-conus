@@ -395,6 +395,26 @@ build_slice_groups = function(n_days, dates, clim_spec) {
   }))
 }
 
+#' Index window for the most recent (current) n-day period ending at d_last.
+#'
+#' Returns the integer index sequence for the n_days-long window ending at
+#' the last date in the series. Used to extract the "current" period that
+#' all metrics are normalized against. Distinct from build_slice_groups,
+#' which returns reference-distribution windows that may not include the
+#' current period (e.g. fixed:1991:2020 when the current year is 2026).
+#'
+#' @param n_days Integer. Window length in days.
+#' @param dates Date vector (the full time series).
+#' @return Integer vector of length n_days, or NULL if the window would
+#'   start before the beginning of the series.
+current_window_indices = function(n_days, dates) {
+  end_i = length(dates)
+  if (end_i < 1) return(NULL)
+  start_i = end_i - (n_days - 1)
+  if (start_i < 1) return(NULL)
+  seq(start_i, end_i)
+}
+
 #' Parse the TIMESCALES environment variable into day counts and display names.
 #'
 #' Supports numeric day counts (e.g. "30", "365") and two symbolic tokens:
@@ -716,21 +736,21 @@ MIN_YEARS = 10L
   fn
 }
 
-#' Percent of normal: (latest / mean) * 100. Wrapper for vapply fallback.
-.pon_latest = function(x_vec, clim_len) {
-  val = try(percent_of_normal(x_vec, clim_len), silent = TRUE)
+#' Percent of normal: (current / mean(ref)) * 100. Wrapper for vapply fallback.
+.pon_latest = function(ref_dist, current_val, clim_len) {
+  val = try(percent_of_normal(ref_dist, current_val, clim_len), silent = TRUE)
   if (inherits(val, "try-error") || !is.finite(val)) NA_real_ else as.numeric(val)
 }
 
-#' Deviation from normal: latest - mean. Wrapper for vapply fallback.
-.dev_latest = function(x_vec, clim_len) {
-  val = try(deviation_from_normal(x_vec, clim_len), silent = TRUE)
+#' Deviation from normal: current - mean(ref). Wrapper for vapply fallback.
+.dev_latest = function(ref_dist, current_val, clim_len) {
+  val = try(deviation_from_normal(ref_dist, current_val, clim_len), silent = TRUE)
   if (inherits(val, "try-error") || !is.finite(val)) NA_real_ else as.numeric(val)
 }
 
-#' Empirical percentile: fraction of reference values <= latest. Wrapper for vapply fallback.
-.pctile_latest = function(x_vec, clim_len) {
-  val = try(compute_percentile(x_vec, clim_len), silent = TRUE)
+#' Empirical percentile: fraction of reference values <= current. Wrapper for vapply fallback.
+.pctile_latest = function(ref_dist, current_val, clim_len) {
+  val = try(compute_percentile(ref_dist, current_val, clim_len), silent = TRUE)
   if (inherits(val, "try-error") || !is.finite(val)) NA_real_ else as.numeric(val)
 }
 
@@ -740,35 +760,36 @@ MIN_YEARS = 10L
 #'
 #' This is the core computation function. For each timescale (e.g. 30d, 90d, wy):
 #'
-#' 1. Build the `integ` matrix (pixels x reference years):
-#'    - build_slice_groups() returns a list of index windows, one per reference year
-#'    - agg_fn (sum or mean) is applied to each window, producing one aggregated
-#'      value per pixel per year
-#'    - Result: integ[i, j] = aggregated value for pixel i in reference year j
-#'    - The last column is the "latest" (current) period
+#' 1. Build the `integ` matrix (pixels x reference years) from build_slice_groups,
+#'    representing the reference distribution. For rolling/full this includes the
+#'    current year as its last column; for fixed it may not (e.g. fixed:1991:2020
+#'    with current=2026 produces a 30-column ref distribution that excludes 2026).
 #'
-#' 2. Cache finite_counts = rowSums(is.finite(integ)) once, reused across all
+#' 2. Compute current_vals separately as a vector [pixels] from
+#'    current_window_indices() — always the window ending at d_last. All metrics
+#'    are normalized against this value, never against integ[, ncol(integ)].
+#'
+#' 3. Cache finite_counts = rowSums(is.finite(integ)) once, reused across all
 #'    metric specs to determine which pixels have enough data (>= MIN_YEARS).
 #'
-#' 3. Loop over metric_specs. Each spec defines one output layer. Three
+#' 4. Loop over metric_specs. Each spec defines one output layer. Three
 #'    computation paths (checked in order):
 #'
-#'    a. raw_latest = TRUE: Simply extract the latest column value. Used for
-#'       precip-mm (current period total). Optional transform function applied.
+#'    a. raw_latest = TRUE: Output the current period value. Optional transform.
 #'
 #'    b. vectorize_type = "pon" | "dev" | "pctile": Matrix operations applied
-#'       to all qualifying pixels at once (no per-pixel loop). This is a
-#'       performance optimization for simple metrics:
-#'         - "pon":    (latest / rowMeans(integ)) * 100
-#'         - "dev":    latest - rowMeans(integ)
-#'         - "pctile": rowSums(integ <= latest) / rowSums(is.finite(integ))
+#'       to all qualifying pixels at once. The reference statistics are taken
+#'       over the integ matrix; the value being normalized is current_vals:
+#'         - "pon":    (current / rowMeans(integ)) * 100
+#'         - "dev":    current - rowMeans(integ)
+#'         - "pctile": rowSums(integ <= current) / rowSums(is.finite(integ))
 #'
-#'    c. vapply fallback: Per-pixel loop calling spec$compute_fn(integ[i,], clim_len).
+#'    c. vapply fallback: spec$compute_fn(integ[i,], current_vals[i], clim_len).
 #'       Used for complex distribution-fitting metrics (SPI gamma, SPEI GLO,
-#'       SVPDI gamma, EDDI nonparametric) that require per-pixel L-moment
-#'       fitting and can't be vectorized.
+#'       SVPDI gamma, EDDI nonparametric) that fit a distribution to the
+#'       reference and evaluate at the current value.
 #'
-#' 4. Each result is written into a copy of base_r (the single-layer template).
+#' 5. Each result is written into a copy of base_r (the single-layer template).
 #'
 #' @param vals Numeric matrix [pixels x days] from read_tile_single_var/two_var.
 #' @param dates Date vector matching ncol(vals).
@@ -778,9 +799,9 @@ MIN_YEARS = 10L
 #' @param metric_specs List of metric spec lists. Each spec has:
 #'   - prefix: output name prefix (e.g. "spi", "precip-pon")
 #'   - band_name: layer name in the output raster
-#'   - compute_fn: function(x_vec, clim_len) -> numeric(1) [for vapply path]
+#'   - compute_fn: function(ref_dist, current_val, clim_len) -> numeric(1) [vapply path]
 #'   - vectorize_type: "pon", "dev", or "pctile" [optional, for matrix path]
-#'   - raw_latest: TRUE to just use the latest value [optional]
+#'   - raw_latest: TRUE to just use the current value [optional]
 #'   - transform: function(x) applied after raw_latest extraction [optional]
 #'   - min_years: override MIN_YEARS for this spec [optional]
 #' @param agg_fn Aggregation function (safe_window_sum or safe_window_mean).
@@ -792,6 +813,7 @@ compute_metrics_generic = function(vals, dates, base_r, timescale_info,
 
   compute_one_period = function(p_i) {
     groups = groups_per_period[[p_i]]
+    n_days = timescale_info$lengths[[p_i]]
     nm     = timescale_info$names[[p_i]]
 
     out_nms = vapply(metric_specs, function(s) paste0(s$prefix, "_", nm), "")
@@ -805,6 +827,17 @@ compute_metrics_generic = function(vals, dates, base_r, timescale_info,
     integ = matrix(NA_real_, nrow = nrow(vals), ncol = length(groups))
     for (g in seq_along(groups)) integ[, g] = agg_fn(vals, groups[[g]])
 
+    # Current-period values: window ending at d_last, computed independently
+    # of the reference distribution. For rolling/full this matches integ[, ncol]
+    # exactly; for fixed-outside-range it is the value being normalized against
+    # the reference distribution.
+    cur_idx = current_window_indices(n_days, dates)
+    current_vals = if (is.null(cur_idx)) {
+      rep(NA_real_, nrow(vals))
+    } else {
+      agg_fn(vals, cur_idx)
+    }
+
     # Cache finite counts to avoid redundant rowSums across metric_specs
     finite_counts = rowSums(is.finite(integ))
 
@@ -817,29 +850,28 @@ compute_metrics_generic = function(vals, dates, base_r, timescale_info,
 
       if (length(ok_rows) > 0) {
         if (isTRUE(spec$raw_latest)) {
-          # Special case: use latest window value with optional transform
-          out_vals[ok_rows] = integ[ok_rows, ncol(integ)]
+          # Output the current period value with optional transform
+          out_vals[ok_rows] = current_vals[ok_rows]
           if (!is.null(spec$transform)) {
             out_vals[ok_rows] = spec$transform(out_vals[ok_rows])
           }
         } else if (!is.null(spec$vectorize_type)) {
-          # Vectorized matrix operations for simple metrics
-          vtype  = spec$vectorize_type
-          sub    = integ[ok_rows, , drop = FALSE]
-          latest = sub[, ncol(sub)]
+          vtype = spec$vectorize_type
+          sub   = integ[ok_rows, , drop = FALSE]
+          cur   = current_vals[ok_rows]
           if (vtype == "pon") {
             means = rowMeans(sub, na.rm = FALSE)
-            out_vals[ok_rows] = (latest / means) * 100
+            out_vals[ok_rows] = (cur / means) * 100
           } else if (vtype == "dev") {
             means = rowMeans(sub, na.rm = FALSE)
-            out_vals[ok_rows] = latest - means
+            out_vals[ok_rows] = cur - means
           } else if (vtype == "pctile") {
             n = rowSums(is.finite(sub))
-            out_vals[ok_rows] = rowSums(sub <= latest, na.rm = FALSE) / n
+            out_vals[ok_rows] = rowSums(sub <= cur, na.rm = FALSE) / n
           }
         } else {
           out_vals[ok_rows] = vapply(ok_rows, function(i)
-            spec$compute_fn(integ[i, ], clim_len), numeric(1))
+            spec$compute_fn(integ[i, ], current_vals[i], clim_len), numeric(1))
         }
       }
 
