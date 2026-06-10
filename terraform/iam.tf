@@ -60,6 +60,25 @@ resource "aws_iam_role_policy" "task_s3" {
   })
 }
 
+# Invalidate latest/ paths on the data-delivery CloudFront distribution after
+# each publish. Created only when a distribution ID is configured.
+resource "aws_iam_role_policy" "task_cloudfront_invalidation" {
+  count = var.cloudfront_distribution_id == "" ? 0 : 1
+
+  name = "${var.project_name}-cloudfront-invalidation"
+  role = aws_iam_role.task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "InvalidateLatest"
+      Effect   = "Allow"
+      Action   = ["cloudfront:CreateInvalidation"]
+      Resource = "arn:aws:cloudfront::${var.aws_account_id}:distribution/${var.cloudfront_distribution_id}"
+    }]
+  })
+}
+
 # ── EventBridge Scheduler role ────────────────────────────────────────────────
 resource "aws_iam_role" "scheduler" {
   name = "${var.project_name}-scheduler"

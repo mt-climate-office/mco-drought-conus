@@ -11,3 +11,8 @@ subnet_ids = ["subnet-xxxxxxxxxxxxxxxxx"]
 # extra_security_group_ids = ["sg-xxxxxxxxxxxxxxxxx"]
 
 s3_bucket_name = "mco-gridmet"
+
+# CloudFront distribution fronting the bucket (data2.climate.umt.edu).
+# Managed outside this stack; set so the pipeline can invalidate latest/
+# paths after each publish. Leave unset to skip invalidation.
+# cloudfront_distribution_id = "EXXXXXXXXXXXXX"

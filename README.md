@@ -76,7 +76,8 @@ mco-drought-conus/
 │   └── run_test.sh        # Lightweight test harness for development
 ├── scripts/
 │   ├── ecr-push.sh                  # Build and push Docker image to ECR
-│   └── deploy-storage-browser.sh    # Build and deploy the storage browser web app
+│   ├── deploy-storage-browser.sh    # Build and deploy the storage browser web app
+│   └── backfill-cache-control.sh    # One-time: stamp Cache-Control on existing latest/ objects
 ├── storage-browser/       # React web app for browsing S3 outputs
 ├── terraform/             # AWS infrastructure (see Cloud Architecture below)
 │   ├── main.tf
@@ -191,6 +192,7 @@ Override any of these in `docker-compose.yml` under `environment:`, or pass them
 | `CLIM_PERIODS` | `rolling:30` | Comma-separated climatological reference period specs (see below) |
 | `TIMESCALES` | `15,30,45,60,90,120,180,365,730,wy,ytd` | Comma-separated list of aggregation timescales to compute |
 | `TILE_IDS` | (all) | Comma-separated tile IDs to process (subset for testing) |
+| `CLOUDFRONT_DISTRIBUTION_ID` | (unset) | If set, invalidate CloudFront `latest/` paths after the final S3 publish |
 
 ### `CLIM_PERIODS` syntax
 
@@ -317,6 +319,25 @@ Because Fargate ephemeral storage is wiped when a task stops, GridMET data is ca
 | Cold start (first ever) | Downloads ~15–20 GB from GridMET servers; saves to `s3://mco-gridmet/raw/` |
 | Every subsequent run | Restores cache from S3 (~2–3 min); refreshes last 2 years from GridMET; saves updates back |
 
+### CDN / Browser Caching of `latest/`
+
+The bucket is served publicly through CloudFront (`data2.climate.umt.edu`, managed
+outside this repo). Because `latest/` objects are republished **in place** under
+unchanging keys, the pipeline uploads them with `Cache-Control: no-cache` so
+CloudFront and browsers revalidate on every use instead of serving heuristically
+cached (stale) copies — unchanged objects still answer with cheap 304s via their
+ETags. `.tif` objects also get an explicit `Content-Type: image/tiff`.
+
+After the final publish, the pipeline issues a CloudFront invalidation for the
+`latest/` viewer paths (gated on `CLOUDFRONT_DISTRIBUTION_ID`; set via the
+`cloudfront_distribution_id` Terraform variable). For correct end-to-end behavior
+the distribution's cache behavior must have **Min TTL = 0**, otherwise CloudFront
+enforces its own caching floor regardless of origin headers.
+
+Objects published before this header existed can be stamped once with
+`scripts/backfill-cache-control.sh`. Dated archive prefixes (`{YYYY-MM-DD}/`)
+are immutable, so default caching is fine there.
+
 ---
 
 ### Prerequisites
@@ -424,6 +445,7 @@ No Terraform changes are needed for code-only updates.
 | `subnet_ids` | List of subnet IDs for Fargate tasks (must have internet access) |
 | `extra_security_group_ids` | Existing security group(s) to attach to Fargate tasks |
 | `s3_bucket_name` | S3 bucket for outputs (default: `mco-gridmet`) |
+| `cloudfront_distribution_id` | Distribution fronting the bucket (`data2.climate.umt.edu`); enables post-publish invalidation of `latest/` (optional) |
 
 ---
 

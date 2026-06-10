@@ -118,6 +118,18 @@ variable "timescales" {
   default     = "15,30,45,60,90,120,180,365,730,wy,ytd"
 }
 
+variable "cloudfront_distribution_id" {
+  description = <<-EOT
+    CloudFront distribution ID fronting the output bucket (data2.climate.umt.edu).
+    The distribution itself is managed outside this stack; this ID is passed to the
+    pipeline container (CLOUDFRONT_DISTRIBUTION_ID) so it can invalidate latest/
+    paths after each publish, and grants the task role invalidation permission.
+    Leave empty to skip invalidation.
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "log_retention_days" {
   description = "CloudWatch log retention in days"
   type        = number

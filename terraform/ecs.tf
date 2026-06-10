@@ -57,6 +57,7 @@ resource "aws_ecs_task_definition" "pipeline" {
         { name = "TIMESCALES",            value = var.timescales },
         { name = "AWS_BUCKET",            value = var.s3_bucket_name },
         { name = "AWS_DEFAULT_REGION",    value = var.aws_region },
+        { name = "CLOUDFRONT_DISTRIBUTION_ID", value = var.cloudfront_distribution_id },
       ]
 
       logConfiguration = {

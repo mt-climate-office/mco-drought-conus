@@ -86,6 +86,14 @@ TMAX_DATE="$(grep '^tmax,'   "$_MANIFEST" 2>/dev/null | cut -d, -f2 | head -1 ||
 # .tif filenames, then sync the staging dir to S3 with --delete.
 # Non-.tif files (e.g. manifest.csv) are copied unchanged.
 # Optional third argument: data date string written to latest-date.txt.
+#
+# latest/ objects are republished in place, so they must carry
+# Cache-Control: no-cache — otherwise browsers and CloudFront apply
+# heuristic caching (based on Last-Modified) and serve stale COGs for
+# hours after a republish. no-cache forces revalidation on every use;
+# unchanged objects still answer with cheap 304s via their ETags.
+# Content-Type is set explicitly for .tifs because the CLI's mimetype
+# guess inside the container can fall back to application/octet-stream.
 s3_sync_dateless() {
   local local_dir="$1" s3_dest="$2" date_str="${3:-}"
   local stage
@@ -104,7 +112,16 @@ s3_sync_dateless() {
   if [ -n "$date_str" ]; then
     echo "$date_str" > "$stage/latest-date.txt"
   fi
-  aws s3 sync "$stage/" "$s3_dest" --delete --no-progress || true
+  # Two passes so .tifs get an explicit Content-Type while manifest.csv /
+  # latest-date.txt keep their guessed types. --delete with filters only
+  # removes destination files matching the same filter, so together the
+  # passes preserve the original single-sync --delete semantics.
+  aws s3 sync "$stage/" "$s3_dest" --delete --no-progress \
+    --exclude "*" --include "*.tif" \
+    --cache-control "no-cache" --content-type "image/tiff" || true
+  aws s3 sync "$stage/" "$s3_dest" --delete --no-progress \
+    --exclude "*.tif" \
+    --cache-control "no-cache" || true
   rm -rf "$stage"
 }
 
@@ -349,6 +366,31 @@ if [ -n "${AWS_BUCKET:-}" ]; then
     "$DATA_DATE"
 
   echo "=== $(date) — S3 sync complete (date=${DATA_DATE}) ==="
+
+  # ============================================================
+  # CLOUDFRONT INVALIDATION
+  # data2.climate.umt.edu serves the bucket through CloudFront.
+  # Flush edge copies of latest/ as soon as the publish lands so
+  # clients never see a prior run's COGs from the CDN.
+  #
+  # The distribution's viewer-request function (mco-strip-origin-
+  # prefix) rewrites /gridmet/<key> -> /<key> BEFORE the cache
+  # lookup, so objects are cached under the stripped path and
+  # invalidations must match it — the viewer-facing /gridmet/...
+  # form would invalidate nothing. Skipped when
+  # CLOUDFRONT_DISTRIBUTION_ID is unset (local runs, or stacks
+  # without the CDN).
+  # ============================================================
+  if [ -n "${CLOUDFRONT_DISTRIBUTION_ID:-}" ]; then
+    echo "=== $(date) — Invalidating CloudFront latest/ paths ==="
+    aws cloudfront create-invalidation \
+      --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
+      --paths \
+        "/derived/conus_drought/latest/*" \
+        "/derived/conus_drought_web/latest/*" \
+      --no-cli-pager || true
+    echo "=== $(date) — CloudFront invalidation submitted ==="
+  fi
 else
   echo "=== $(date) — AWS_BUCKET not set; skipping S3 sync (local run) ==="
 fi
