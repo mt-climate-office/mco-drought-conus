@@ -3,10 +3,12 @@
 #
 # Objects published before the pipeline set Cache-Control carry no caching
 # header at all, so browsers and CloudFront apply heuristic caching and serve
-# stale COGs for hours after a republish. This stamps every existing latest/
-# object with Cache-Control: no-cache (revalidate-before-serve; unchanged
-# objects still answer with cheap 304s via their ETags). New uploads get the
-# header from run_once.sh, so this only needs to run once.
+# stale COGs for hours after a republish. This stamps existing latest/
+# objects to match what run_once.sh now uploads: COGs get max-age=300
+# (edge/browser caching for fast range reads, staleness capped at 5 min;
+# the pipeline's post-publish invalidation keeps the edge fresh), and the
+# small text files stay no-cache so freshness is always detectable. New
+# uploads get the headers from run_once.sh, so this only needs to run once.
 #
 # Usage:
 #   AWS_PROFILE=mco bash scripts/backfill-cache-control.sh
@@ -24,7 +26,8 @@ backfill_prefix() {
   aws s3 cp "s3://${AWS_BUCKET}/${prefix}" "s3://${AWS_BUCKET}/${prefix}" \
     --recursive --exclude "*" --include "*.tif" \
     --metadata-directive REPLACE \
-    --cache-control "no-cache" --content-type "image/tiff"
+    --cache-control "public, max-age=300, stale-while-revalidate=3600, stale-if-error=86400" \
+    --content-type "image/tiff"
   aws s3 cp "s3://${AWS_BUCKET}/${prefix}" "s3://${AWS_BUCKET}/${prefix}" \
     --recursive --exclude "*" --include "*.csv" \
     --metadata-directive REPLACE \

@@ -87,11 +87,19 @@ TMAX_DATE="$(grep '^tmax,'   "$_MANIFEST" 2>/dev/null | cut -d, -f2 | head -1 ||
 # Non-.tif files (e.g. manifest.csv) are copied unchanged.
 # Optional third argument: data date string written to latest-date.txt.
 #
-# latest/ objects are republished in place, so they must carry
-# Cache-Control: no-cache — otherwise browsers and CloudFront apply
+# latest/ objects are republished in place, so they must carry an
+# explicit Cache-Control — otherwise browsers and CloudFront apply
 # heuristic caching (based on Last-Modified) and serve stale COGs for
-# hours after a republish. no-cache forces revalidation on every use;
-# unchanged objects still answer with cheap 304s via their ETags.
+# hours after a republish. COGs get:
+#   max-age=300                 fresh for 5 min (edge + browser)
+#   stale-while-revalidate=3600 after that, serve cached instantly and
+#                               refresh in the background (CloudFront,
+#                               Chrome, Firefox; others fall back to
+#                               plain max-age)
+#   stale-if-error=86400        keep serving from cache if origin errors
+# The post-publish CloudFront invalidation keeps the edge fresh at
+# publish time. The small text files (manifest.csv, latest-date.txt)
+# stay no-cache so freshness is always detectable.
 # Content-Type is set explicitly for .tifs because the CLI's mimetype
 # guess inside the container can fall back to application/octet-stream.
 s3_sync_dateless() {
@@ -118,7 +126,8 @@ s3_sync_dateless() {
   # passes preserve the original single-sync --delete semantics.
   aws s3 sync "$stage/" "$s3_dest" --delete --no-progress \
     --exclude "*" --include "*.tif" \
-    --cache-control "no-cache" --content-type "image/tiff" || true
+    --cache-control "public, max-age=300, stale-while-revalidate=3600, stale-if-error=86400" \
+    --content-type "image/tiff" || true
   aws s3 sync "$stage/" "$s3_dest" --delete --no-progress \
     --exclude "*.tif" \
     --cache-control "no-cache" || true
@@ -341,10 +350,14 @@ local_sync_dateless \
 if [ -n "${AWS_BUCKET:-}" ]; then
   echo "=== $(date) — Archiving outputs to s3://${AWS_BUCKET}/derived/ ==="
 
+  # Dated archives are immutable once written, so they can cache forever.
+  ARCHIVE_CACHE_CONTROL="public, max-age=31536000, immutable"
+
   # conus_drought — date archive (includes manifest.csv with per-dataset dates)
   aws s3 sync \
     "$DATA_DIR/derived/conus_drought/" \
     "s3://${AWS_BUCKET}/derived/conus_drought/${DATA_DATE}/" \
+    --cache-control "$ARCHIVE_CACHE_CONTROL" \
     --no-progress
 
   # conus_drought — latest (dateless filenames; --delete removes stale files)
@@ -357,6 +370,7 @@ if [ -n "${AWS_BUCKET:-}" ]; then
   aws s3 sync \
     "$DATA_DIR/derived/conus_drought_web/" \
     "s3://${AWS_BUCKET}/derived/conus_drought_web/${DATA_DATE}/" \
+    --cache-control "$ARCHIVE_CACHE_CONTROL" \
     --no-progress
 
   # conus_drought_web — latest (dateless filenames)

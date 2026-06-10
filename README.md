@@ -323,20 +323,29 @@ Because Fargate ephemeral storage is wiped when a task stops, GridMET data is ca
 
 The bucket is served publicly through CloudFront (`data2.climate.umt.edu`, managed
 outside this repo). Because `latest/` objects are republished **in place** under
-unchanging keys, the pipeline uploads them with `Cache-Control: no-cache` so
-CloudFront and browsers revalidate on every use instead of serving heuristically
-cached (stale) copies — unchanged objects still answer with cheap 304s via their
-ETags. `.tif` objects also get an explicit `Content-Type: image/tiff`.
+unchanging keys, the pipeline uploads them with explicit caching headers —
+without them, browsers and CloudFront apply heuristic caching and serve stale
+COGs for up to a day after a republish:
+
+| Objects | Cache-Control | Rationale |
+|---------|---------------|-----------|
+| `latest/*.tif` | `public, max-age=300, stale-while-revalidate=3600, stale-if-error=86400` | Edge/browser caching keeps COG range reads fast; fresh within 5 min; after that, cached copies are served instantly while refreshing in the background; the post-publish invalidation keeps the edge fresh at publish time |
+| `latest/` text files (`manifest.csv`, `latest-date.txt`) | `no-cache` | Tiny; always revalidated so freshness is detectable |
+| `{YYYY-MM-DD}/` dated archives | `public, max-age=31536000, immutable` | Never rewritten; cache forever |
+
+`.tif` objects also get an explicit `Content-Type: image/tiff`.
 
 After the final publish, the pipeline issues a CloudFront invalidation for the
-`latest/` viewer paths (gated on `CLOUDFRONT_DISTRIBUTION_ID`; set via the
-`cloudfront_distribution_id` Terraform variable). For correct end-to-end behavior
-the distribution's cache behavior must have **Min TTL = 0**, otherwise CloudFront
-enforces its own caching floor regardless of origin headers.
+`latest/` paths (gated on `CLOUDFRONT_DISTRIBUTION_ID`; set via the
+`cloudfront_distribution_id` Terraform variable). Note the distribution's
+viewer-request function strips the `/gridmet` prefix **before** the cache lookup,
+so invalidation paths use the stripped form (`/derived/.../latest/*`), not the
+viewer-facing `/gridmet/...` form. For correct end-to-end behavior the cache
+behavior's **Min TTL must be 0**, otherwise CloudFront enforces its own caching
+floor regardless of origin headers.
 
-Objects published before this header existed can be stamped once with
-`scripts/backfill-cache-control.sh`. Dated archive prefixes (`{YYYY-MM-DD}/`)
-are immutable, so default caching is fine there.
+Objects published before these headers existed can be stamped once with
+`scripts/backfill-cache-control.sh`.
 
 ---
 
