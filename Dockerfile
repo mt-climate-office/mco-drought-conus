@@ -13,9 +13,17 @@ RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tm
 ENV TZ=America/Denver
 ENV OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 
-RUN R -q -e 'install.packages(c("fs","purrr","readr","tibble","rnaturalearth","gdalUtilities","lmomco","raster","ncdf4","pak","pbmcapply"), repos="https://cloud.r-project.org")'
+# CRAN pinned to a dated Posit snapshot so rebuilds are reproducible —
+# floating "latest CRAN" silently bumped terra 1.9.11 -> 1.9.27 on a rebuild
+# and broke the pipeline. terra is installed explicitly so its version comes
+# from the snapshot, not whatever the base image shipped. Bump the date
+# deliberately when upgrading packages.
+ARG CRAN_SNAPSHOT=2026-06-10
+RUN R -q -e 'install.packages(c("terra","fs","purrr","readr","tibble","rnaturalearth","gdalUtilities","lmomco","raster","ncdf4","pbmcapply"), repos=sprintf("https://packagemanager.posit.co/cran/__linux__/jammy/%s", Sys.getenv("CRAN_SNAPSHOT", "2026-06-10")))'
 
-RUN R -q -e 'pak::pkg_install("ropensci/rnaturalearthhires")'
+# rnaturalearthhires is too large for CRAN; install from rOpenSci r-universe.
+# (A GitHub install via pak hits unauthenticated API rate limits on CI runners.)
+RUN R -q -e 'install.packages("rnaturalearthhires", repos=c("https://ropensci.r-universe.dev", "https://cloud.r-project.org"))'
 
 # Create non-root user for running the pipeline
 RUN useradd -m -s /bin/bash mco-drought

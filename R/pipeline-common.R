@@ -583,8 +583,10 @@ read_tile_single_var = function(tile_sf, nc_files, dates, nc_varname, terra_temp
 
   rr_list = vector("list", length(nc_files))
   for (k in seq_along(nc_files)) {
+    # subds= instead of "NETCDF:file:var" string: terra 1.9.27 rejects the
+    # string form ("file does not exist"); subds works on old and new terra.
     r_k = try(
-      terra::rast(paste0("NETCDF:", as.character(nc_files[[k]]), ":", nc_varname)),
+      terra::rast(as.character(nc_files[[k]]), subds = nc_varname),
       silent = TRUE
     )
     if (inherits(r_k, "try-error")) {
@@ -659,7 +661,7 @@ read_tile_two_var = function(tile_sf, files1, files2, varname1, varname2,
   # Read and stack var1
   rr1 = vector("list", length(files1))
   for (k in seq_along(files1)) {
-    r_k = try(terra::rast(paste0("NETCDF:", as.character(files1[[k]]), ":", varname1)), silent = TRUE)
+    r_k = try(terra::rast(as.character(files1[[k]]), subds = varname1), silent = TRUE)
     if (inherits(r_k, "try-error")) return(list(vals = NULL, base_r = NULL, msg = paste("var1 read error:", files1[[k]])))
     rr1[[k]] = r_k
   }
@@ -668,7 +670,7 @@ read_tile_two_var = function(tile_sf, files1, files2, varname1, varname2,
   # Read and stack var2
   rr2 = vector("list", length(files2))
   for (k in seq_along(files2)) {
-    r_k = try(terra::rast(paste0("NETCDF:", as.character(files2[[k]]), ":", varname2)), silent = TRUE)
+    r_k = try(terra::rast(as.character(files2[[k]]), subds = varname2), silent = TRUE)
     if (inherits(r_k, "try-error")) return(list(vals = NULL, base_r = NULL, msg = paste("var2 read error:", files2[[k]])))
     rr2[[k]] = r_k
   }
@@ -1268,7 +1270,7 @@ run_metric_pipeline = function(config) {
   }
 
   # Build tile grid
-  r_meta = terra::rast(paste0("NETCDF:", as.character(meta_file), ":", nc_varname_meta))[[1]]
+  r_meta = terra::rast(as.character(meta_file), subds = nc_varname_meta)[[1]]
   tiles  = build_tiles_from_extent(dx = dx, dy = dy, r_for_align = r_meta)
   rm(r_meta); gc(verbose = FALSE)
 
