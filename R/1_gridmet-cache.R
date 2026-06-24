@@ -30,6 +30,47 @@ invisible(fs::dir_create(raw_base))
   fs::path(d$raw_dir, sprintf("%s_%d.nc", var, year))
 }
 
+# ---- TLS: supply GridMET's missing intermediate CA --------------------------
+# WHY: since ~2026-06-11 www.northwestknowledge.net (the GridMET / metdata host)
+# serves an INCOMPLETE certificate chain. The leaf (CN=northwestknowledge.net) is
+# issued by "InCommon RSA OV SSL CA 3", but the server omits that intermediate and
+# ships the wrong one, so strict TLS clients (curl in cron/containers) fail with
+# "unable to get local issuer certificate" (openssl verify code 21). Browsers and
+# any box that already cached the intermediate still work, which makes it look like
+# a local misconfig — it is NOT. It is a SERVER-side bug (report to the admin).
+#
+# We unblock our side by pinning the missing intermediate (committed at
+# R/certs/InCommonRSAOVSSLCA3.pem, valid to 2035-11-05) and verifying against a
+# bundle of [system CA roots + that intermediate]. We do NOT disable verification
+# (no -k/--insecure). REMOVE this workaround once SSL Labs shows the chain is
+# complete again: https://www.ssllabs.com/ssltest/analyze.html?d=www.northwestknowledge.net
+.gridmet_intermediate_pem = .abs(fs::path(project_root, "R", "certs", "InCommonRSAOVSSLCA3.pem"))
+
+.build_ca_bundle = function() {
+  if (!fs::file_exists(.gridmet_intermediate_pem))
+    stop("GridMET intermediate CA missing: ", .gridmet_intermediate_pem,
+         " (needed to complete the server's incomplete TLS chain)")
+  # The CA roots the client already trusts. The pipeline runs on Debian/Ubuntu
+  # (container); other paths cover RHEL and macOS. Override with GRIDMET_CA_ROOTS.
+  roots_candidates = c(
+    Sys.getenv("GRIDMET_CA_ROOTS", unset = ""),
+    "/etc/ssl/certs/ca-certificates.crt",  # Debian/Ubuntu (pipeline container)
+    "/etc/pki/tls/certs/ca-bundle.crt",    # RHEL/Fedora
+    "/etc/ssl/cert.pem"                    # macOS (Homebrew/LibreSSL), BSD
+  )
+  ok = nzchar(roots_candidates) & fs::file_exists(roots_candidates)
+  if (!any(ok))
+    stop("No system CA root bundle found; set GRIDMET_CA_ROOTS to your CA roots .pem")
+  roots  = roots_candidates[ok][1]
+  bundle = fs::file_temp("gridmet-ca-bundle-", ext = "pem")
+  # roots first, then the pinned intermediate; curl reads everything as trusted.
+  writeLines(c(readLines(roots), readLines(.gridmet_intermediate_pem)), bundle)
+  .abs(bundle)
+}
+
+# Built once per run; passed to curl via --cacert below.
+.gridmet_ca_bundle = .build_ca_bundle()
+
 # ---- utilities ---------------------------------------------------------------
 .retry = function(n, sleep_sec = 2, expr) {
   last = NULL
@@ -79,7 +120,12 @@ gridmet_download_year = function(var, year) {
 
   # -R: set local mtime to server Last-Modified
   # -z: send If-Modified-Since; skip download if remote is not newer
-  extra = if (fs::file_exists(out)) c("-R", "-z", shQuote(out)) else "-R"
+  # --cacert: verify against [system roots + pinned intermediate] so the server's
+  #           incomplete chain validates (see .build_ca_bundle above). NOT --insecure.
+  extra = c(
+    if (fs::file_exists(out)) c("-R", "-z", shQuote(out)) else "-R",
+    "--cacert", shQuote(.gridmet_ca_bundle)
+  )
 
   message("Checking ", var, " ", year)
   .retry(3, 3, {
