@@ -299,7 +299,7 @@
     h2 { page-break-before: auto; }
     pre { border: 1px solid #aaa; white-space: pre-wrap; word-break: break-all; }
     a { color: #000; text-decoration: none; }
-    a[href]::after { content: " [" attr(href) "]"; font-size: 8pt; color: #555; }
+    a[href^="http"]::after { content: " [" attr(href) "]"; font-size: 8pt; color: #555; }
     .note { border: 1px solid #aaa; background: #f5f5f5; }
     p, #abstract p { text-align: left; }
   }
@@ -347,6 +347,7 @@
     <li><a href="#spatial">Spatial Architecture</a></li>
     <li><a href="#outputs">Output Products</a></li>
     <li><a href="#software">Software &amp; Reproducibility</a></li>
+    <li><a href="#partners">Partners &amp; Acknowledgments</a></li>
     <li><a href="#references">References</a></li>
   </ol>
 </nav>
@@ -362,8 +363,8 @@
     <h1>CONUS Drought Monitoring Pipeline: Methods</h1>
     <p class="subtitle">Zachary H. Hoylman, R. Kyle Bocinsky, and Kelsey G. Jencso &mdash; Montana Climate Office, University of Montana</p>
     <div class="meta">
-      <span>Updated: <time id="doc-date">2026-03-12</time></span>
-      <span>Version 1.1</span>
+      <span>Updated: <time id="doc-date">2026-07-16</time></span>
+      <span>Version 1.2</span>
     </div>
   </header>
 
@@ -380,11 +381,11 @@
     </p>
 
     <p>
-      From these inputs the pipeline derives five standardized drought index families —
+      From these inputs the pipeline derives four standardized drought index families —
       the Standardized Precipitation Index (SPI), the Standardized
       Precipitation-Evapotranspiration Index (SPEI), the Evaporative Demand Drought Index
-      (EDDI), the Standardized VPD Index (SVPDI), and maximum temperature percentiles
-      (Tmax) — alongside ancillary products including precipitation accumulation (mm),
+      (EDDI), and the Standardized VPD Index (SVPDI) — together with maximum temperature
+      percentiles (Tmax) and ancillary products including precipitation accumulation (mm),
       percent of normal and deviation from normal for both precipitation and VPD,
       empirical percentile ranks for precipitation, VPD, and Tmax, and temperature
       deviation from normal. Each metric is computed across multiple aggregation
@@ -397,7 +398,7 @@
       reference periods. Because a warming climate produces non-stationary baseline statistics,
       drought classifications derived from a fixed historical normal can be misleading about
       contemporary conditions <sup><a href="#ref2">[2]</a></sup>. The pipeline therefore
-      supports rolling trailing windows, fixed WMO-standard normals, and full-period baselines,
+      supports rolling 30-year windows, fixed WMO-standard normals, and full period-of-record baselines,
       all configurable at runtime. All outputs are written as Cloud-Optimized GeoTIFFs (COG)
       with LZW compression, tiled internally for efficient partial reads by downstream
       visualization and analysis tools.
@@ -414,9 +415,9 @@
       <p>
         All meteorological inputs are obtained from gridMET <sup><a href="#ref1">[1]</a></sup>,
         a daily surface meteorological dataset covering CONUS at a spatial resolution of
-        approximately 4&nbsp;km (1/24°). gridMET is produced by statistically downscaling
-        NCEP/NCAR reanalysis fields using the spatial climatological patterns embedded in
-        PRISM (Parameter-elevation Regressions on Independent Slopes Model), yielding a
+        approximately 4&nbsp;km (1/24°). gridMET blends the temporal attributes of
+        regional-scale reanalysis fields (NLDAS-2) with the spatial climatological patterns
+        embedded in PRISM (Parameter-elevation Regressions on Independent Slopes Model), yielding a
         dataset that is both temporally consistent and spatially detailed. The archive
         extends from 1979 to near-present (updated daily), providing the multi-decadal
         record required for robust climatological fitting. Data are freely available at
@@ -437,8 +438,8 @@
             </tr>
           </thead>
           <tbody>
-            <tr><td>Precipitation</td><td><code>pr</code></td><td>mm/day</td><td>SPI, SPEI water balance, precip % of normal, precip deviation, precip percentile, precip accumulation (mm)</td></tr>
-            <tr><td>Reference ET (ETo)</td><td><code>pet</code></td><td>mm/day</td><td>SPEI water balance, EDDI</td></tr>
+            <tr><td>Precipitation</td><td><code>pr</code></td><td>mm/day</td><td>SPI, SPEI, precip % of normal, precip deviation, precip percentile, precip accumulation (mm)</td></tr>
+            <tr><td>Reference ET (ETo)</td><td><code>pet</code></td><td>mm/day</td><td>SPEI, EDDI</td></tr>
             <tr><td>Vapor pressure deficit</td><td><code>vpd</code></td><td>kPa</td><td>SVPDI, VPD % of normal, VPD deviation, VPD percentile</td></tr>
             <tr><td>Maximum air temperature</td><td><code>tmmx</code></td><td>K</td><td>Tmax percentile, Tmax deviation</td></tr>
           </tbody>
@@ -468,7 +469,8 @@
       <p>
         This means every year — including historical years — is checked on each run, but
         only files that have actually changed on the server are re-downloaded. In practice,
-        completed historical years are never re-fetched after the initial download, while the
+        completed historical years are rarely re-fetched after the initial download (only
+        when the provider updates or corrects historical fields), while the
         current (in-progress) year file is updated whenever the provider appends new daily
         observations. Failed downloads are retried up to 3 times with a short backoff.
       </p>
@@ -488,10 +490,13 @@
     <h4>Scientific Motivation</h4>
     <p>
       Standardized drought indices measure anomalies relative to a baseline climatology.
-      The choice of baseline profoundly affects index values: the same precipitation total
-      can indicate moderate drought against a 1950–1980 baseline but near-normal conditions
-      against a 1991–2020 WMO normal. As the climate warms, the statistical properties of
-      temperature, PET, and water balance are trending systematically, violating the
+      The choice of baseline profoundly affects index values: for example, the same
+      temperature, reference ET, or precipitation value could indicate moderate drought
+      against a 1950–1980 baseline but near-normal conditions
+      against a 1991–2020 WMO normal. In other words, as the climate warms, the statistical
+      properties of temperature, PET, and water balance may trend systematically in any of
+      the distribution&rsquo;s moments (mean, standard deviation, skewness, kurtosis, etc.),
+      violating the
       stationarity assumption embedded in fixed-period normals. Hoylman et al. (2022)
       <sup><a href="#ref2">[2]</a></sup> demonstrate that non-stationarity in baseline
       climate substantially alters drought frequency and severity assessments, motivating
@@ -518,19 +523,19 @@
         <tbody>
           <tr>
             <td><code>rolling:30</code></td>
-            <td>Rolling trailing window</td>
-            <td><code>rolling_30</code></td>
-            <td>Trailing 30-year window ending at the current year; tracks contemporary climatology (default)</td>
+            <td>Rolling 30-year window</td>
+            <td><code>rolling-30</code></td>
+            <td>Rolling 30-year window ending at the current year; tracks contemporary climatology (default). <code>rolling:N</code> generalizes to any window length.</td>
           </tr>
           <tr>
             <td><code>fixed:1991:2020</code></td>
             <td>Fixed interval</td>
-            <td><code>fixed_1991_2020</code></td>
+            <td><code>fixed-1991-2020</code></td>
             <td>WMO 1991–2020 standard normal; suitable for comparison with published climatologies</td>
           </tr>
           <tr>
             <td><code>full</code></td>
-            <td>Full archive</td>
+            <td>Full period of record</td>
             <td><code>full</code></td>
             <td>All years from <code>START_YEAR</code> to present; maximizes sample size</td>
           </tr>
@@ -548,7 +553,7 @@ CLIM_PERIODS="rolling:30,fixed:1991:2020"
 # Fixed period only
 CLIM_PERIODS="fixed:1991:2020"
 
-# Full archive
+# Full period of record
 CLIM_PERIODS="full"</code></pre>
 
     <p>
@@ -576,9 +581,26 @@ CLIM_PERIODS="full"</code></pre>
       calendar day-of-year, and a probability distribution (or empirical CDF) is fitted to
       the subsample of values that fall within the selected climatological reference period.
       The current (most recent) observation is then transformed to a standardized anomaly or
-      probability using that fitted distribution. Index values are positive for above-average
-      conditions and negative (or high) for drought conditions, following established
-      conventions for each index.
+      probability using that fitted distribution.
+    </p>
+    <p style="font-size:0.95em;color:var(--text-muted);">
+      <em>Note on aggregation:</em> For fixed-length windows, the choice of rolling sum vs.
+      rolling mean is invariant under the subsequent standardization &mdash; the two differ by
+      a constant scale factor (1/<em>W</em>) that cancels in the fitted CDF, so the
+      resulting standardized indices are identical regardless of which is used. The
+      operational pipeline uses rolling sums for SPI, SPEI, and EDDI (yielding outputs in
+      physically interpretable accumulated units) and rolling means for SVPDI (so VPD is
+      reported in its native units).
+    </p>
+    <p>
+      <strong>Sign conventions.</strong> Two distinct sign conventions are used across the
+      indices on this page, reflecting the underlying variable. <em>Hydroclimatic standardized
+      indices</em> (SPI, SPEI) follow the precipitation-anomaly convention: <em>negative</em>
+      values indicate drought, <em>positive</em> values indicate wet anomalies. <em>Atmospheric-demand
+      indices</em> (EDDI, SVPDI) follow the demand-anomaly convention: <em>positive</em> values
+      indicate drier-than-normal atmospheric conditions, <em>negative</em> values indicate
+      below-normal demand. The Tmax percentile is not a centered <em>z</em>-score but a
+      probability metric where higher values indicate unusually warm conditions.
     </p>
 
     <!-- 4.1 SPI ──────────────────────────────────────────────────────── -->
@@ -608,7 +630,7 @@ CLIM_PERIODS="full"</code></pre>
       <h4>Statistical Method</h4>
       <p>
         Precipitation is inherently bounded at zero and right-skewed; a two-parameter
-        Gamma distribution (shape <em>&alpha;</em>, rate <em>&beta;</em>) is therefore fitted
+        Gamma distribution (shape <em>&alpha;</em>, scale <em>&beta;</em>) is therefore fitted
         to the climatological sample for each grid cell and aggregation window. Parameter
         estimation follows the L-moment / probability-weighted moment (PWM) approach of
         Hosking (1990) <sup><a href="#ref4">[4]</a></sup>, as implemented in the R package
@@ -657,12 +679,15 @@ CLIM_PERIODS="full"</code></pre>
         <li>
           <strong>Normal quantile transform</strong> — SPI = <em>&Phi;</em><sup>&minus;1</sup>(<em>p</em>),
           where <em>&Phi;</em><sup>&minus;1</sup> is the standard normal quantile function.
-          No clamping is applied to the resulting SPI values.
+          No clamping is applied to the resulting SPI values; in the rare case that the
+          fitted CDF saturates numerically (<em>p</em>&nbsp;=&nbsp;0 or 1), the resulting
+          non-finite value is set to <code>NA</code>.
         </li>
       </ol>
 
       <div class="eq">
-        SPI = &Phi;<sup>&minus;1</sup>[ F<sub>&Gamma;(&alpha;,&beta;)</sub>( X<sub>W</sub> ) ]
+        SPI = &Phi;<sup>&minus;1</sup>[ H( X<sub>W</sub> ) ]
+        &nbsp;&nbsp;<span style="color:var(--text-muted);font-size:0.9em;">(exact zeros take <em>p</em>&nbsp;=&nbsp;<em>p&#x0304;</em><sub>0</sub>)</span>
       </div>
 
       <h4>Interpretation</h4>
@@ -679,9 +704,9 @@ CLIM_PERIODS="full"</code></pre>
           <tbody>
             <tr><td></td><td>Normal or wet conditions</td><td>x &gt; 30</td><td>x &gt; &minus;0.524</td></tr>
             <tr><td>D0</td><td>Abnormally Dry</td><td>30 &ge; x &gt; 20</td><td>&minus;0.524 &ge; x &gt; &minus;0.842</td></tr>
-            <tr><td>D1</td><td>Moderate Drought</td><td>20 &ge; x &gt; 10</td><td>&minus;0.842 &ge; x &gt; &minus;1.281</td></tr>
-            <tr><td>D2</td><td>Severe Drought</td><td>10 &ge; x &gt; 5</td><td>&minus;1.281 &ge; x &gt; &minus;1.644</td></tr>
-            <tr><td>D3</td><td>Extreme Drought</td><td>5 &ge; x &gt; 2</td><td>&minus;1.644 &ge; x &gt; &minus;2.054</td></tr>
+            <tr><td>D1</td><td>Moderate Drought</td><td>20 &ge; x &gt; 10</td><td>&minus;0.842 &ge; x &gt; &minus;1.282</td></tr>
+            <tr><td>D2</td><td>Severe Drought</td><td>10 &ge; x &gt; 5</td><td>&minus;1.282 &ge; x &gt; &minus;1.645</td></tr>
+            <tr><td>D3</td><td>Extreme Drought</td><td>5 &ge; x &gt; 2</td><td>&minus;1.645 &ge; x &gt; &minus;2.054</td></tr>
             <tr><td>D4</td><td>Exceptional Drought</td><td>x &lt; 2</td><td>x &lt; &minus;2.054</td></tr>
           </tbody>
         </table>
@@ -691,7 +716,10 @@ CLIM_PERIODS="full"</code></pre>
       <p>
         At least 10 anchor years must fall within the selected reference period for a
         distribution fit to be attempted. Grid cells with fewer anchor years receive a
-        fill value of <code>NA</code> for the current timestep.
+        fill value of <code>NA</code> for the current timestep. In addition, the Gamma fit
+        itself requires at least 3 positive (non-zero) values with non-zero variance in the
+        reference sample; cells that fail this condition (e.g. a reference period that is
+        nearly all zeros at short timescales in arid regions) also return <code>NA</code>.
       </p>
     </section>
 
@@ -758,7 +786,7 @@ CLIM_PERIODS="full"</code></pre>
         The SPEI <sup><a href="#ref6">[6]</a></sup> extends SPI by incorporating the
         atmospheric evaporative demand, making it sensitive to warming-driven increases in
         PET even when precipitation is unchanged. In a warming climate, SPEI captures
-        hydrological drought stress that SPI would miss.
+        atmospheric-demand-driven drought stress that SPI would miss.
       </p>
 
       <h4>Input</h4>
@@ -769,13 +797,21 @@ CLIM_PERIODS="full"</code></pre>
       </p>
 
       <h4>Aggregation</h4>
-      <p>Rolling window means over the same timescales as SPI.</p>
+      <p>
+        Rolling window <em>sums</em> of the daily water balance over the same timescales as SPI;
+        equivalently, the rolling sum of precipitation minus the rolling sum of PET, both
+        accumulated over the same window. Units are millimeters of accumulated moisture surplus
+        (positive) or deficit (negative). The Generalized Logistic (GLO) distribution is then
+        fitted to this aggregated
+        quantity for each calendar day-of-year within the climatological reference period, and
+        the current observation is transformed via the same fitted distribution.
+      </p>
 
       <h4>Statistical Method</h4>
       <p>
         The water balance variable is unbounded below (large PET on dry days) and has
-        heavier distributional tails than precipitation alone. The Generalized Logistic
-        (GLO) distribution, which accommodates both heavy tails and asymmetry, is therefore
+        heavier distributional tails than precipitation alone. The GLO distribution,
+        which accommodates both heavy tails and asymmetry, is therefore
         used in place of the Gamma:
       </p>
       <ol>
@@ -830,23 +866,39 @@ CLIM_PERIODS="full"</code></pre>
         <li>
           <strong>Tukey plotting position</strong> — Following Hobbins et al. (2016)
           <sup><a href="#ref7">[7]</a></sup>, the empirical probability is estimated via
-          the Tukey plotting position (Wilks 2011):
+          the Tukey plotting position:
           <div class="eq">
-            p<sub>i</sub> = (i &minus; 1/3) / (n + 1/3)
+            p<sub>i</sub> = (i &minus; 0.33) / (n + 0.33)
           </div>
           where <em>i</em> is the rank of the aggregated E<sub>0</sub> in the historical
           time series (i&nbsp;=&nbsp;1 for maximum E<sub>0</sub>) and <em>n</em> is the
-          number of observations in the climatological sample.
+          number of observations being ranked. When the reference period is rolling or
+          full-record, the current observation is the final member of the climatological
+          sample (<em>n</em> = sample size); under a fixed reference period that excludes
+          the current year, the current observation is appended to the sample and ranked
+          within the resulting <em>n</em>&nbsp;+&nbsp;1 values.
           Because rank 1 = highest demand, <em>p</em> is small for drought conditions.
         </li>
         <li>
           <strong>Inverse normal approximation</strong> — EDDI is derived via the rational
           approximation of Abramowitz and Stegun (1965)
           <sup><a href="#ref8">[8]</a></sup>, following the formulation in
-          Vicente-Serrano et al. (2010). For <em>p</em>&nbsp;&le;&nbsp;0.5,
+          Hobbins et al. (2016) <sup><a href="#ref7">[7]</a></sup> and
+          Vicente-Serrano et al. (2010) <sup><a href="#ref10">[10]</a></sup>. For <em>p</em>&nbsp;&le;&nbsp;0.5,
           <em>W</em>&nbsp;=&nbsp;&radic;(&minus;2&sdot;ln(<em>p</em>)); for
           <em>p</em>&nbsp;&gt;&nbsp;0.5, <em>p</em> is replaced with 1&minus;<em>p</em>
-          and the sign of EDDI is reversed.
+          and the sign of EDDI is reversed:
+          <div class="eq">
+            EDDI = W &minus;
+            <span style="white-space:nowrap;">
+              ( C<sub>0</sub> + C<sub>1</sub>W + C<sub>2</sub>W<sup>2</sup> ) /
+              ( 1 + d<sub>1</sub>W + d<sub>2</sub>W<sup>2</sup> + d<sub>3</sub>W<sup>3</sup> )
+            </span>
+          </div>
+          with constants C<sub>0</sub>&nbsp;=&nbsp;2.515517, C<sub>1</sub>&nbsp;=&nbsp;0.802853,
+          C<sub>2</sub>&nbsp;=&nbsp;0.010328, d<sub>1</sub>&nbsp;=&nbsp;1.432788,
+          d<sub>2</sub>&nbsp;=&nbsp;0.189269, and d<sub>3</sub>&nbsp;=&nbsp;0.001308, as
+          tabulated in Hobbins et al. (2016).
         </li>
         <li>
           <strong>Sign convention</strong> — High PET (low <em>p</em>) produces positive
@@ -857,7 +909,8 @@ CLIM_PERIODS="full"</code></pre>
       </ol>
 
       <div class="eq">
-        EDDI = &Phi;<sup>&minus;1</sup>[ p<sub>Tukey</sub>( E<sub>0,W</sub> ) ]
+        EDDI = &minus;&Phi;<sup>&minus;1</sup>[ p<sub>Tukey</sub>( E<sub>0,W</sub> ) ]
+        &nbsp;&nbsp;<span style="color:var(--text-muted);font-size:0.9em;">(rank&nbsp;1&nbsp;=&nbsp;highest&nbsp;E<sub>0</sub>; the leading minus enforces positive&nbsp;EDDI for drought)</span>
       </div>
 
       <h4>Interpretation</h4>
@@ -933,8 +986,10 @@ CLIM_PERIODS="full"</code></pre>
       <p>
         Positive SVPDI indicates above-normal VPD (heightened atmospheric demand and
         potential vegetation stress). Negative SVPDI indicates below-normal VPD (reduced
-        atmospheric demand). The sign convention matches that of SPI/SPEI, where positive
-        values represent drier conditions.
+        atmospheric demand). SVPDI follows the atmospheric-demand sign convention shared
+        with EDDI — <em>positive values indicate drier-than-normal atmospheric conditions</em>
+        — which is the opposite of the SPI/SPEI hydroclimatic convention, where negative
+        values indicate drought.
       </p>
     </section>
 
@@ -1005,7 +1060,10 @@ CLIM_PERIODS="full"</code></pre>
       <ol>
         <li>
           The empirical cumulative distribution function (ECDF) is constructed from the
-          climatological sample using <code>ecdf()</code> from base R.
+          climatological sample:
+          F&#x0302;<sub>n</sub>(x)&nbsp;=&nbsp;(number of reference values&nbsp;&le;&nbsp;x)&nbsp;/&nbsp;<em>n</em>
+          (evaluated via a vectorized rank computation equivalent to base R
+          <code>ecdf()</code>).
         </li>
         <li>
           The ECDF is evaluated at the current observation to produce a probability
@@ -1033,9 +1091,13 @@ CLIM_PERIODS="full"</code></pre>
 
       <h4>Interpretation</h4>
       <p>
-        Values &gt; 0.9 indicate exceptionally warm conditions (top decile of the reference
-        climatology). The output is reported as a 0–1 probability rather than a standardized
-        anomaly, making it directly interpretable as an exceedance percentile.
+        For the <strong>Tmax percentile</strong>: values &gt; 0.9 indicate exceptionally warm
+        conditions (top decile of the reference climatology). The percentile is reported as a
+        0–1 probability rather than a standardized anomaly, making it directly interpretable
+        as an exceedance percentile. For the <strong>Tmax deviation</strong>: values are the
+        absolute departure of the current rolling-mean maximum temperature from the
+        climatological mean, in K (equivalent to °C for a temperature difference); positive
+        values indicate above-normal temperatures.
       </p>
     </section>
   </section>
@@ -1046,11 +1108,16 @@ CLIM_PERIODS="full"</code></pre>
 
     <h4>Tiling</h4>
     <p>
-      The CONUS domain is partitioned into rectangular 2°&times;2° tiles (configurable
-      via environment variable). Each tile spans approximately 220&times;220&nbsp;km at
-      mid-latitudes, containing roughly 2,500 grid cells (50&times;50). Tiles are processed
+      Loading the full 47-year daily record for all of CONUS at once would require far more
+      memory than is practical, so the domain is partitioned into rectangular 1°&times;1°
+      tiles (configurable via the <code>TILE_DX</code>/<code>TILE_DY</code> environment
+      variables) and processed tile-by-tile. This keeps the per-worker memory footprint
+      small enough to run on modestly sized (cost-effective) ECS Fargate tasks while still
+      exploiting all available cores. Each tile spans approximately 110&times;85&nbsp;km at
+      mid-latitudes, containing roughly 600 grid cells (24&times;24). Tiles are processed
       independently, which enables embarrassingly parallel execution and constrains peak
-      memory usage per process.
+      memory usage per process. Tiles that fail (e.g. due to memory pressure) are
+      automatically subdivided into four quadrants and retried at the smaller size.
     </p>
 
     <h4>Parallelism</h4>
@@ -1070,7 +1137,8 @@ CLIM_PERIODS="full"</code></pre>
       </li>
       <li>
         The number of cores is configurable via the <code>CORES</code> environment variable
-        (defaults to <code>parallel::detectCores()</code>). Setting <code>CORES=1</code>
+        (the operational container entry point defaults to 12; the local
+        <code>docker-compose</code> configuration sets 8). Setting <code>CORES=1</code>
         runs sequentially with the progress bar still visible.
       </li>
     </ul>
@@ -1087,12 +1155,11 @@ CLIM_PERIODS="full"</code></pre>
         translation.
       </li>
       <li>
-        <code>gdal_translate</code> converts the VRT to a Cloud-Optimized GeoTIFF with LZW
-        compression (<code>COMPRESS=LZW</code>, <code>PREDICTOR=2</code>) and internal
-        tiling (<code>TILED=YES</code>, <code>BLOCKXSIZE=512</code>,
-        <code>BLOCKYSIZE=512</code>). The <code>COPY_SRC_OVERVIEWS=YES</code> flag and
-        <code>gdaladdo</code> pre-computation ensure efficient thumbnail rendering by web map
-        clients.
+        <code>gdal_translate</code> converts the VRT to a Cloud-Optimized GeoTIFF
+        (<code>-of COG</code>) with LZW compression (<code>COMPRESS=LZW</code>,
+        <code>PREDICTOR=2</code>). The COG driver applies internal 512&times;512 tiling and
+        automatically generates the overview pyramid, ensuring efficient partial reads and
+        thumbnail rendering by web map clients.
       </li>
     </ol>
 
@@ -1112,10 +1179,32 @@ CLIM_PERIODS="full"</code></pre>
       All final output layers are written to the <code>conus_drought/</code> directory as
       Cloud-Optimized GeoTIFFs. Filenames follow the pattern:
     </p>
-    <pre><code>{index}_{timescale}_{clim_slug}.tif
-# e.g.: spi_30d_rolling_30.tif
-#       spei_90d_fixed_1991_2020.tif
-#       eddi_365d_full.tif</code></pre>
+    <pre><code>{index}_{timescale}_{clim_slug}_{YYYY-MM-DD}.tif
+# e.g.: spi_30d_rolling-30_2026-03-10.tif
+#       spei_90d_fixed-1991-2020_2026-03-10.tif
+#       eddi_365d_full_2026-03-10.tif</code></pre>
+    <p>
+      where the trailing date is the data date (the last day of the aggregation window).
+      Published copies in the <code>latest/</code> directory carry the same names with the
+      date suffix stripped (e.g. <code>spi_30d_rolling-30.tif</code>), so operational
+      consumers can request a stable URL; the accompanying <code>manifest.csv</code> and
+      <code>latest-date.txt</code> record the data date of each layer.
+    </p>
+    <p>
+      The <code>{clim_slug}</code> component identifies the climatological reference period
+      the layer was standardized against (Section&nbsp;3): <code>rolling-30</code> = rolling
+      30-year window ending at the current year; <code>fixed-1991-2020</code> = the fixed
+      WMO 1991–2020 standard normal; <code>full</code> = the full period of record
+      (<code>START_YEAR</code> to present).
+    </p>
+    <p>
+      The units listed below describe the gridded data as written by this pipeline —
+      i.e. what is stored in the public S3 bucket at
+      <a href="https://data2.climate.umt.edu/gridmet/derived/conus_drought/" target="_blank" rel="noopener">
+        data2.climate.umt.edu/gridmet/derived/conus_drought/</a>.
+      Downstream applications such as the D³ dashboard may convert units on the fly for
+      display (e.g. mm to inches), but the underlying rasters always carry the units below.
+    </p>
 
     <div class="table-wrap">
       <table>
@@ -1144,7 +1233,7 @@ CLIM_PERIODS="full"</code></pre>
             <td>EDDI</td>
             <td>15d, 30d, 45d, 60d, 90d, 120d, 180d, 365d, 730d, WY, YTD</td>
             <td>Dimensionless <em>z</em>-score</td>
-            <td>Nonparametric (Gringorten)</td>
+            <td>Nonparametric (Tukey plotting position)</td>
           </tr>
           <tr>
             <td>SVPDI</td>
@@ -1212,7 +1301,21 @@ CLIM_PERIODS="full"</code></pre>
 
     <p>
       All rasters share the native gridMET CRS (EPSG:4326, geographic/WGS84) and pixel size
-      (1/24° ≈ 4&nbsp;km). NoData is encoded as <code>NaN</code> (IEEE 754 32-bit float).
+      (1/24° ≈ 4&nbsp;km). In the primary (analysis-grade) products, values are stored as
+      32-bit floats and NoData is encoded as <code>NaN</code> (IEEE 754 32-bit float).
+    </p>
+
+    <h4>Web-Optimized Copies</h4>
+    <p>
+      Alongside the primary products, the pipeline publishes a parallel set of
+      web-optimized COGs (<code>conus_drought_web/</code>) intended for browser-based
+      visualization. Values are multiplied by 100 and stored as integers
+      (<code>Int16</code>; <code>Int32</code> for wide-range metrics such as precipitation
+      accumulation and percent of normal), with <code>SCALE=0.01</code> recorded in the
+      GeoTIFF metadata so GDAL-aware clients recover physical units automatically. These
+      files use DEFLATE compression, include a full overview pyramid, and encode NoData
+      as &minus;9999. The primary Float32 products remain the authoritative source for
+      analysis.
     </p>
   </section>
 
@@ -1242,7 +1345,7 @@ CLIM_PERIODS="full"</code></pre>
           <tr><td><code>fs</code></td><td>File system operations (path manipulation, directory management)</td></tr>
           <tr><td><code>purrr</code></td><td>Functional programming utilities for list operations</td></tr>
           <tr><td><code>pbmcapply</code></td><td>Fork-based parallel apply with real-time progress bar</td></tr>
-          <tr><td><code>gdalUtilities</code></td><td>R wrappers for <code>gdal_translate</code>, <code>gdaladdo</code>, <code>gdalbuildvrt</code></td></tr>
+          <tr><td><code>gdalUtilities</code></td><td>R wrappers for <code>gdal_translate</code>, <code>gdalbuildvrt</code></td></tr>
         </tbody>
       </table>
     </div>
@@ -1256,13 +1359,13 @@ CLIM_PERIODS="full"</code></pre>
         <tbody>
           <tr><td><code>START_YEAR</code></td><td><code>1979</code></td><td>First year of gridMET archive to download/use</td></tr>
           <tr><td><code>CLIM_PERIODS</code></td><td><code>rolling:30</code></td><td>Comma-separated reference period specification(s)</td></tr>
-          <tr><td><code>CORES</code></td><td>All available</td><td>Number of parallel worker processes</td></tr>
-          <tr><td><code>TILE_DX</code></td><td><code>2</code></td><td>Tile width in degrees</td></tr>
-          <tr><td><code>TILE_DY</code></td><td><code>2</code></td><td>Tile height in degrees</td></tr>
+          <tr><td><code>CORES</code></td><td><code>12</code></td><td>Number of parallel worker processes</td></tr>
+          <tr><td><code>TILE_DX</code></td><td><code>1</code></td><td>Tile width in degrees</td></tr>
+          <tr><td><code>TILE_DY</code></td><td><code>1</code></td><td>Tile height in degrees</td></tr>
           <tr><td><code>CONUS_MASK</code></td><td><code>1</code></td><td>Apply CONUS land mask (0 = no mask)</td></tr>
           <tr><td><code>DATA_DIR</code></td><td><code>~/mco-drought-conus-data</code></td><td>Root directory for input NetCDF cache and outputs</td></tr>
-          <tr><td><code>TIMESCALES</code></td><td>all</td><td>Timescales to compute</td></tr>
-          <tr><td><code>TILE_IDS</code></td><td>all tiles</td><td>Subset of tile IDs to process</td></tr>
+          <tr><td><code>TIMESCALES</code></td><td><code>15,30,45,60,90,120,180,365,730,wy,ytd</code></td><td>Timescales to compute</td></tr>
+          <tr><td><code>TILE_IDS</code></td><td><code>(unset)</code></td><td>Subset of tile IDs to process; unset = all tiles</td></tr>
         </tbody>
       </table>
     </div>
@@ -1275,13 +1378,13 @@ docker compose build
 docker compose up
 
 # Run with multiple reference periods
-docker compose run -e CLIM_PERIODS="rolling:30,fixed:1991:2020" mco-drought
+docker compose run --rm -e CLIM_PERIODS="rolling:30,fixed:1991:2020" mco-drought
 
 # Run with limited cores for debugging
-docker compose run -e CORES=4 mco-drought
+docker compose run --rm -e CORES=4 mco-drought
 
 # Quick test (single metric, few tiles)
-docker compose run --rm mco-drought bash docker/run_test.sh</code></pre>
+docker compose run --rm mco-drought bash pipeline/run_test.sh</code></pre>
 
     <h4>Source Code</h4>
     <p>
@@ -1289,28 +1392,65 @@ docker compose run --rm mco-drought bash docker/run_test.sh</code></pre>
       <code>mco-drought-conus</code> repository. The pipeline is structured as follows:
     </p>
     <pre><code>mco-drought-conus/
+├── Dockerfile
+├── docker-compose.yml
 ├── R/
 │   ├── drought-functions.R        # Core statistical fitting functions
-│   ├── pipeline-common.R        # Shared pipeline infrastructure
+│   ├── pipeline-common.R          # Shared pipeline infrastructure
 │   ├── 1_gridmet-cache.R          # gridMET download and caching
 │   ├── 2_metrics-precip.R         # SPI + ancillary metrics
 │   ├── 3_metrics-spei.R           # SPEI
 │   ├── 4_metrics-eddi.R           # EDDI
 │   ├── 5_metrics-vpd.R            # SVPDI
-│   └── 6_metrics-tmax.R           # Tmax percentile
-├── docker/
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   ├── run_once.sh                # Orchestration shell script
-│   ├── make_web_cogs.sh         # COG post-processing
-│   └── run_test.sh              # Quick-test runner
+│   └── 6_metrics-tmax.R           # Tmax percentile + deviation
+├── pipeline/
+│   ├── run_once.sh                # Orchestration shell script (container entry point)
+│   ├── make_web_cogs.sh           # Web-optimized COG post-processing
+│   └── run_test.sh                # Quick-test runner
+├── scripts/                       # Deployment utilities (ECR push, etc.)
+├── terraform/                     # AWS infrastructure as code
 └── docs/
     └── methods.html               # This document</code></pre>
   </section>
 
-  <!-- ── Section 8: References ─────────────────────────────────────── -->
+  <!-- ── Section 8: Partners & Acknowledgments ─────────────────────── -->
+  <section id="partners">
+    <h2>8. Partners &amp; Acknowledgments</h2>
+    <p>
+      The Drought Data Dashboard (D³) is a collaboration between the following institutions.
+      This work is supported by ongoing partnerships across academic, state, and federal drought
+      monitoring programs.
+    </p>
+    <ul>
+      <li>
+        <a href="https://climate.umt.edu/" target="_blank" rel="noopener"><strong>Montana Climate Office (MCO)</strong></a>
+        &mdash; University of Montana. Primary developer and operational home of the pipeline,
+        dashboard, and derived drought indicators.
+      </li>
+      <li>
+        <a href="https://ngp-ridr.org/" target="_blank" rel="noopener"><strong>Northern Great Plains Regional Incubator for Drought Resiliency (NGP&nbsp;RIDR)</strong></a>
+        &mdash; Regional partnership advancing drought early warning and decision-support across
+        Montana, North Dakota, South Dakota, and Wyoming.
+      </li>
+      <li>
+        <a href="https://www.drought.gov/" target="_blank" rel="noopener"><strong>National Integrated Drought Information System (NIDIS)</strong></a>
+        &mdash; NOAA. Federal program coordinating the national drought early warning system and
+        partner to this effort. This work is supported by NIDIS through University Corporation
+        for Atmospheric Research subaward <strong>SUBAWD000858</strong> and NOAA award
+        <strong>NA22OAR4310232-T1-01</strong>.
+      </li>
+    </ul>
+    <p style="margin-top:1rem;font-size:0.9rem;color:var(--text-muted);">
+      Upstream data providers and authoritative sources (gridMET, NOHRSC SNODAS, NOAA GHCNd,
+      USGS NWIS, U.S. Drought Monitor, BIA, USGS WBD) are cited in
+      <a href="#references">References</a> and on each dataset's inline tooltip within the
+      dashboard.
+    </p>
+  </section>
+
+  <!-- ── Section 9: References ─────────────────────────────────────── -->
   <section id="references">
-    <h2>8. References</h2>
+    <h2>9. References</h2>
 
     <div class="references">
       <ol>
@@ -1368,6 +1508,12 @@ docker compose run --rm mco-drought bash docker/run_test.sh</code></pre>
           pressure deficit index for drought monitoring and impacts.
           <em>International Journal of Climatology</em>. 2024;44:5825–5838.
           doi:<a href="https://doi.org/10.1002/joc.8668" target="_blank">10.1002/joc.8668</a>
+        </li>
+        <li id="ref10">
+          Vicente-Serrano SM, Beguería S, López-Moreno JI. A multiscalar drought index
+          sensitive to global warming: the Standardized Precipitation Evapotranspiration
+          Index. <em>Journal of Climate</em>. 2010;23(7):1696–1718.
+          doi:<a href="https://doi.org/10.1175/2009JCLI2909.1" target="_blank">10.1175/2009JCLI2909.1</a>
         </li>
       </ol>
     </div>

@@ -13,8 +13,8 @@ services:
       CORES: "8"
       KEEP_TILES: "0"
       CONUS_MASK: "1"
-      TILE_DX: "2"
-      TILE_DY: "2"
+      TILE_DX: "1"
+      TILE_DY: "1"
       CLIM_PERIODS: "rolling:30,full,fixed:1991:2020"
       TIMESCALES: "15,30,45,60,90,120,180,365,730,wy,ytd"
       # Examples:

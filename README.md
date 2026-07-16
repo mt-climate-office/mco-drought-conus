@@ -15,6 +15,7 @@ timescales, updated operationally via Docker.
 | **% of Normal** | Precipitation as percent of climatological normal |
 | **Deviation** | Precipitation departure from normal (mm) |
 | **Percentile** | Precipitation percentile rank |
+| **Accumulation** | Raw accumulated precipitation (mm) |
 | **SPEI** | Standardized Precipitation-Evapotranspiration Index |
 | **EDDI** | Evaporative Demand Drought Index |
 | **SVPDI** | Standardized VPD Index (vapor pressure deficit) |
@@ -68,6 +69,7 @@ mco-drought-conus/
 │   ├── 4_metrics-eddi.R
 │   ├── 5_metrics-vpd.R
 │   ├── 6_metrics-tmax.R
+│   ├── certs/                     # Pinned InCommon intermediate CA (GridMET TLS workaround)
 │   ├── drought-functions.R
 │   └── pipeline-common.R
 ├── pipeline/
@@ -91,6 +93,8 @@ mco-drought-conus/
 │   ├── ecs.tf
 │   ├── scheduler.tf
 │   ├── cloudwatch.tf
+│   ├── efs.tf                  # Tombstone: EFS unused (S3 caching instead); kept so TF destroys it
+│   ├── storage-browser.tf      # Cognito guest creds + app bucket + CloudFront for storage browser
 │   └── terraform.tfvars.example
 ├── .github/
 │   └── workflows/
@@ -182,11 +186,11 @@ Override any of these in `docker-compose.yml` under `environment:`, or pass them
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CORES` | `8` | Parallel workers for tile processing |
+| `CORES` | `12` | Parallel workers for tile processing (`docker-compose.yml` sets `8` for local runs) |
 | `KEEP_TILES` | `0` | Set to `1` to retain intermediate tile folders after the run |
 | `CONUS_MASK` | `1` | Apply CONUS land mask to outputs (`0` = no mask) |
-| `TILE_DX` | `2` | Tile width in degrees |
-| `TILE_DY` | `2` | Tile height in degrees |
+| `TILE_DX` | `1` | Tile width in degrees |
+| `TILE_DY` | `1` | Tile height in degrees |
 | `START_YEAR` | `1979` | Earliest year to include in the GridMET sync |
 | `DATA_DIR` | `~/mco-drought-conus-data` | Root directory for raw, interim, and derived data |
 | `CLIM_PERIODS` | `rolling:30` | Comma-separated climatological reference period specs (see below) |
@@ -206,8 +210,12 @@ Each spec produces a slug appended to all output filenames:
 
 Multiple specs are comma-separated. Each produces its own set of output files:
 
+The operational configuration (`docker-compose.yml`) runs three periods per pipeline run:
+`rolling:30,full,fixed:1991:2020`. The R-script fallback when the variable is unset is
+`rolling:30`.
+
 ```yaml
-# Single period (default — matches prior behavior)
+# Single period (R-script fallback default)
 CLIM_PERIODS: "rolling:30"
 
 # Two periods in one run
@@ -317,7 +325,12 @@ Because Fargate ephemeral storage is wiped when a task stops, GridMET data is ca
 | Run | Behavior |
 |-----|----------|
 | Cold start (first ever) | Downloads ~15–20 GB from GridMET servers; saves to `s3://mco-gridmet/raw/` |
-| Every subsequent run | Restores cache from S3 (~2–3 min); refreshes last 2 years from GridMET; saves updates back |
+| Every subsequent run | Restores cache from S3 (~2–3 min); conditionally re-checks every year against GridMET (`If-Modified-Since` — in practice only the current year re-downloads); saves updates back |
+
+The restore step also pulls `derived/conus_drought/latest/` back from S3 and re-applies S3
+timestamps, so the make-style freshness checks can skip metrics whose raw inputs are
+unchanged. Combined with the intermediate `latest/` sync after each metric script, this
+lets a failed run resume without recomputing completed datasets.
 
 ### CDN / Browser Caching of `latest/`
 
@@ -419,7 +432,8 @@ aws ecs describe-tasks \
 ### CI/CD (GitHub Actions)
 
 Pushing to `main` automatically builds and pushes the Docker image to ECR when any of the
-following paths change: `Dockerfile`, `R/**`, `pipeline/**`, `scripts/**`.
+following paths change: `Dockerfile`, `R/**`, `pipeline/**`, `scripts/**`, or the workflow
+file itself.
 
 The workflow (`.github/workflows/docker-publish.yml`) authenticates via OIDC — no AWS keys
 are stored in GitHub. Images are tagged both `:latest` and `:<git-sha>`. Because the ECS task
@@ -470,6 +484,16 @@ Raw climate data comes from **GridMET** (Northwest Knowledge Network, University
   ecological applications and modelling.* International Journal of Climatology.
   <https://doi.org/10.1002/joc.3413>
 
+### GridMET TLS workaround
+
+Since ~June 2026 the GridMET host (`www.northwestknowledge.net`) has served an incomplete
+TLS certificate chain, which breaks strict clients (curl in containers) with "unable to get
+local issuer certificate". The pipeline pins the missing intermediate CA at
+`R/certs/InCommonRSAOVSSLCA3.pem` (valid to 2035) and verifies downloads against
+[system roots + that intermediate] — verification is **not** disabled. Remove the
+workaround once [SSL Labs](https://www.ssllabs.com/ssltest/analyze.html?d=www.northwestknowledge.net)
+shows a complete chain again; see the comments in `R/1_gridmet-cache.R` for details.
+
 ---
 
 ## Running Locally (Without Docker)
@@ -480,6 +504,11 @@ Raw climate data comes from **GridMET** (Northwest Knowledge Network, University
 - System libraries: `gdal`, `netcdf`, `cdo`
 - R packages: `terra`, `ncdf4`, `sf`, `lmomco`, `fs`, `purrr`, `readr`, `tibble`,
   `rnaturalearth`, `rnaturalearthhires`, `gdalUtilities`, `raster`, `pbmcapply`
+
+> **Note on package versions:** the Docker image pins CRAN to a dated Posit snapshot
+> (`CRAN_SNAPSHOT` build arg in the `Dockerfile`) because a floating "latest CRAN"
+> silently bumped terra 1.9.11 → 1.9.27 and broke NetCDF reads. If running outside
+> Docker, install from the same snapshot or verify your terra version against it.
 
 Set the required environment variables, then run `pipeline/run_once.sh` or invoke each script
 individually. Data writes to `DATA_DIR` (outside the repo by default — not git-tracked):
