@@ -25,6 +25,17 @@ resource "aws_s3_bucket_policy" "outputs_public_read" {
         Principal = "*"
         Action    = "s3:GetObject"
         Resource  = "${aws_s3_bucket.outputs.arn}/*"
+      },
+      {
+        # Public ListBucket lets anonymous requests (including the CDN's
+        # pass-through origin) distinguish missing keys: 404 instead of 403.
+        # Codified 2026-08-08 from a console-made change that Terraform
+        # would otherwise silently revert.
+        Sid       = "PublicListBucket"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:ListBucket"
+        Resource  = aws_s3_bucket.outputs.arn
       }
     ]
   })
@@ -36,11 +47,17 @@ resource "aws_s3_bucket_policy" "outputs_public_read" {
 resource "aws_s3_bucket_cors_configuration" "outputs" {
   bucket = aws_s3_bucket.outputs.id
 
+  # Origins are restricted to the data CDN: browser consumers go through
+  # data2.climate.umt.edu, not the raw S3 endpoint. Codified 2026-08-08 from
+  # a console-made tightening that Terraform would otherwise loosen back
+  # to allowed_origins = ["*"].
   cors_rule {
     allowed_headers = ["*"]
-    allowed_methods = ["GET", "HEAD"]
-    allowed_origins = ["*"]
-    expose_headers  = ["Content-Range", "Accept-Ranges", "Content-Length", "ETag"]
+    allowed_methods = ["GET"]
+    allowed_origins = [
+      "https://d1s8jav5n0eyyf.cloudfront.net",
+      "https://data2.climate.umt.edu",
+    ]
     max_age_seconds = 3600
   }
 }
