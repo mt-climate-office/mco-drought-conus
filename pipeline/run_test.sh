@@ -9,7 +9,7 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
 Usage: ./pipeline/run_test.sh
 
 Environment variables (all optional):
-  METRIC        Which metric to run: precip, spei, eddi, vpd, tmax, all
+  METRIC        Which metric to run: precip, spei, eddi, vpd, tmax, cdd, all
                 (default: precip)
   TIMESCALES    Comma-separated timescales (default: 30)
   TILE_IDS      Comma-separated tile IDs (default: 1,2,3)
@@ -97,12 +97,13 @@ script_for_metric() {
     eddi)   echo "$PROJECT_DIR/R/4_metrics-eddi.R" ;;
     vpd)    echo "$PROJECT_DIR/R/5_metrics-vpd.R" ;;
     tmax)   echo "$PROJECT_DIR/R/6_metrics-tmax.R" ;;
+    cdd)    echo "$PROJECT_DIR/R/7_metrics-cdd.R" ;;
     *)      echo "" ;;
   esac
 }
 
 if [ "$METRIC" = "all" ]; then
-  METRICS_TO_RUN="precip spei eddi vpd tmax"
+  METRICS_TO_RUN="precip spei eddi vpd tmax cdd"
 else
   METRICS_TO_RUN="$METRIC"
 fi
@@ -111,7 +112,7 @@ fi
 for m in $METRICS_TO_RUN; do
   script="$(script_for_metric "$m")"
   if [ -z "$script" ]; then
-    echo "ERROR: Unknown metric '$m'. Valid: precip, spei, eddi, vpd, tmax, all"
+    echo "ERROR: Unknown metric '$m'. Valid: precip, spei, eddi, vpd, tmax, cdd, all"
     exit 1
   fi
   METRIC_START=$SECONDS

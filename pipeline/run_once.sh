@@ -81,6 +81,7 @@ SPEI_DATE="$(grep '^spei,'   "$_MANIFEST" 2>/dev/null | cut -d, -f2 | head -1 ||
 EDDI_DATE="$(grep '^eddi,'   "$_MANIFEST" 2>/dev/null | cut -d, -f2 | head -1 || echo "")"
 VPD_DATE="$(grep '^vpd,'     "$_MANIFEST" 2>/dev/null | cut -d, -f2 | head -1 || echo "")"
 TMAX_DATE="$(grep '^tmax,'   "$_MANIFEST" 2>/dev/null | cut -d, -f2 | head -1 || echo "")"
+CDD_DATE="$(grep '^cdd,'     "$_MANIFEST" 2>/dev/null | cut -d, -f2 | head -1 || echo "")"
 
 # Copy a local directory to a temp staging dir with _YYYY-MM-DD stripped from
 # .tif filenames, then sync the staging dir to S3 with --delete.
@@ -141,7 +142,7 @@ s3_sync_derived() {
   if [ -n "${AWS_BUCKET:-}" ]; then
     echo "=== $(date) — Syncing derived/conus_drought to S3 (latest/) ==="
     local _date=""
-    for _d in "${PRECIP_DATE:-}" "${SPEI_DATE:-}" "${EDDI_DATE:-}" "${VPD_DATE:-}" "${TMAX_DATE:-}"; do
+    for _d in "${PRECIP_DATE:-}" "${SPEI_DATE:-}" "${EDDI_DATE:-}" "${VPD_DATE:-}" "${TMAX_DATE:-}" "${CDD_DATE:-}"; do
       [ -n "$_d" ] && [[ "$_d" > "$_date" ]] && _date="$_d"
     done
     # Fall back to scanning dated filenames if no metric dates tracked yet
@@ -195,7 +196,7 @@ cleanup_metric_stale() {
 write_manifest() {
   local dir="$1"
   local updated=""
-  for _d in "${PRECIP_DATE:-}" "${SPEI_DATE:-}" "${EDDI_DATE:-}" "${VPD_DATE:-}" "${TMAX_DATE:-}"; do
+  for _d in "${PRECIP_DATE:-}" "${SPEI_DATE:-}" "${EDDI_DATE:-}" "${VPD_DATE:-}" "${TMAX_DATE:-}" "${CDD_DATE:-}"; do
     [ -n "$_d" ] && [[ "$_d" > "$updated" ]] && updated="$_d"
   done
   [ -z "$updated" ] && updated="$(date +%Y-%m-%d)"
@@ -207,8 +208,9 @@ write_manifest() {
     [ -n "${EDDI_DATE:-}"   ] && printf 'eddi,%s\n'   "$EDDI_DATE"
     [ -n "${VPD_DATE:-}"    ] && printf 'vpd,%s\n'    "$VPD_DATE"
     [ -n "${TMAX_DATE:-}"   ] && printf 'tmax,%s\n'   "$TMAX_DATE"
+    [ -n "${CDD_DATE:-}"    ] && printf 'cdd,%s\n'    "$CDD_DATE"
   } > "$dir/manifest.csv"
-  echo "=== Manifest: updated=${updated} | precip=${PRECIP_DATE:-?} spei=${SPEI_DATE:-?} eddi=${EDDI_DATE:-?} vpd=${VPD_DATE:-?} tmax=${TMAX_DATE:-?} ==="
+  echo "=== Manifest: updated=${updated} | precip=${PRECIP_DATE:-?} spei=${SPEI_DATE:-?} eddi=${EDDI_DATE:-?} vpd=${VPD_DATE:-?} tmax=${TMAX_DATE:-?} cdd=${CDD_DATE:-?} ==="
 }
 
 echo "=== $(date) — Syncing GridMET cache (START_YEAR=${START_YEAR}) ==="
@@ -247,7 +249,14 @@ cleanup_metric_stale "$DATA_DIR/derived/conus_drought" "${TMAX_DATE:-}" \
   "tmax-pctile" "tmax-dev"
 s3_sync_derived
 
-echo "=== $(date) — All drought metrics complete (precip, SPEI, EDDI, VPD, tmax) ==="
+echo "=== $(date) — Running consecutive dry days metrics ==="
+Rscript "$PROJECT_DIR/R/7_metrics-cdd.R"
+_d=$(get_metric_date "scdd-010"); [ -n "$_d" ] && CDD_DATE="$_d"
+cleanup_metric_stale "$DATA_DIR/derived/conus_drought" "${CDD_DATE:-}" \
+  "cdd-005" "cdd-010" "cdd-025" "scdd-005" "scdd-010" "scdd-025"
+s3_sync_derived
+
+echo "=== $(date) — All drought metrics complete (precip, SPEI, EDDI, VPD, tmax, CDD) ==="
 
 # Write per-dataset manifest into conus_drought/ so it is included in all
 # subsequent syncs (dated archives, latest/, and web COG conversions).
@@ -300,7 +309,7 @@ fi
 
 # Determine the data date as the latest date across all datasets.
 DATA_DATE="${PRECIP_DATE:-}"
-for _d in "${SPEI_DATE:-}" "${EDDI_DATE:-}" "${VPD_DATE:-}" "${TMAX_DATE:-}"; do
+for _d in "${SPEI_DATE:-}" "${EDDI_DATE:-}" "${VPD_DATE:-}" "${TMAX_DATE:-}" "${CDD_DATE:-}"; do
   [ -n "$_d" ] && [[ "$_d" > "$DATA_DATE" ]] && DATA_DATE="$_d"
 done
 DATA_DATE="${DATA_DATE:-$(date +%Y-%m-%d)}"

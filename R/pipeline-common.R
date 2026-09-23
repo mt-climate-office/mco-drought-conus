@@ -550,6 +550,45 @@ align_two_var_dates = function(files1, files2, label1 = "var1", label2 = "var2")
   rowMeans(sub, na.rm = FALSE)
 }
 
+#' Factory returning an agg_fn that measures the trailing dry-run length.
+#'
+#' Used by the Consecutive Dry Days metric. For each pixel, counts backward from
+#' the LAST day of the window until it meets a day with precipitation at or above
+#' `threshold_mm`. A window whose final day is itself wet yields 0. A window with
+#' no wet day at all yields ncol(window) — i.e. the streak is right-censored at
+#' the window length, which is the "timescale" the pipeline was configured with.
+#'
+#' NA policy deliberately differs from .safe_window_sum/.safe_window_mean. Those
+#' use na.rm = FALSE so one missing day voids the whole window. Here a missing day
+#' mid-window is treated as NOT wet, so the streak survives a data gap; only a
+#' missing value on the anchor day (the last day) produces NA. Voiding a 730-day
+#' window on a single gap would blank most of the map.
+#'
+#' @param threshold_mm Numeric. Daily precipitation at or above this counts as wet.
+#' @return function(vals_mat, idx_vec) -> numeric vector, one value per pixel.
+.cdd_trailing_run = function(threshold_mm) {
+  force(threshold_mm)
+  function(vals_mat, idx_vec) {
+    w = vals_mat[, idx_vec, drop = FALSE]
+    n = ncol(w)
+    if (n < 1L) return(rep(NA_real_, nrow(w)))
+
+    wet = w >= threshold_mm
+    wet[is.na(wet)] = FALSE
+
+    # Reverse the columns so "most recent" is column 1, then max.col finds the
+    # first wet day looking backward from the anchor. Fully vectorized: no loop
+    # over days, no per-pixel search.
+    rw  = wet[, n:1, drop = FALSE]
+    k   = max.col(rw, ties.method = "first")
+    out = ifelse(rowSums(rw) > 0L, k - 1L, n)
+
+    # Anchor day missing -> undefined streak.
+    out[!is.finite(w[, n])] = NA_real_
+    as.numeric(out)
+  }
+}
+
 # ---- H. Generic tile readers ------------------------------------------------
 # These functions run INSIDE each forked parallel worker. They open NetCDF files
 # independently (no terra objects cross the fork boundary), stack all yearly
@@ -806,7 +845,13 @@ MIN_YEARS = 10L
 #'   - raw_latest: TRUE to just use the current value [optional]
 #'   - transform: function(x) applied after raw_latest extraction [optional]
 #'   - min_years: override MIN_YEARS for this spec [optional]
-#' @param agg_fn Aggregation function (safe_window_sum or safe_window_mean).
+#'   - agg_fn: per-spec aggregation function overriding the config-level agg_fn
+#'     [optional]. Needed when one metric emits several bands built from
+#'     different aggregations of the same tile (e.g. CDD at three thresholds).
+#'   - agg_key: cache key naming the aggregation [optional, required with agg_fn].
+#'     Specs sharing a key share one `integ` matrix. Omit to use the default.
+#' @param agg_fn Default aggregation function (safe_window_sum or
+#'   safe_window_mean), used by any spec that does not set its own.
 #' @return Named list of single-layer SpatRasters, or list(.msg = "...") if all NA.
 compute_metrics_generic = function(vals, dates, base_r, timescale_info,
                                    clim_spec, metric_specs, agg_fn) {
@@ -826,28 +871,44 @@ compute_metrics_generic = function(vals, dates, base_r, timescale_info,
     }
 
     clim_len = length(groups)
-    integ = matrix(NA_real_, nrow = nrow(vals), ncol = length(groups))
-    for (g in seq_along(groups)) integ[, g] = agg_fn(vals, groups[[g]])
+    cur_idx  = current_window_indices(n_days, dates)
 
-    # Current-period values: window ending at d_last, computed independently
-    # of the reference distribution. For rolling/full this matches integ[, ncol]
-    # exactly; for fixed-outside-range it is the value being normalized against
-    # the reference distribution.
-    cur_idx = current_window_indices(n_days, dates)
-    current_vals = if (is.null(cur_idx)) {
-      rep(NA_real_, nrow(vals))
-    } else {
-      agg_fn(vals, cur_idx)
+    # Aggregation bundles are memoized per agg_key. Specs that share an
+    # aggregation function (e.g. the raw and standardized bands of one CDD
+    # threshold) then build `integ` only once per tile instead of once per spec.
+    # A spec with no agg_fn falls back to the config-level agg_fn under the key
+    # "default", so behaviour is unchanged for every pre-existing metric.
+    agg_cache = list()
+    get_agg = function(spec) {
+      key = spec$agg_key %||% "default"
+      if (!is.null(agg_cache[[key]])) return(agg_cache[[key]])
+      fn = spec$agg_fn %||% agg_fn
+
+      integ = matrix(NA_real_, nrow = nrow(vals), ncol = length(groups))
+      for (g in seq_along(groups)) integ[, g] = fn(vals, groups[[g]])
+
+      # Current-period values: window ending at d_last, computed independently
+      # of the reference distribution. For rolling/full this matches integ[, ncol]
+      # exactly; for fixed-outside-range it is the value being normalized against
+      # the reference distribution.
+      current_vals = if (is.null(cur_idx)) rep(NA_real_, nrow(vals)) else fn(vals, cur_idx)
+
+      # finite_counts cached alongside so it is not recomputed per spec.
+      bundle = list(integ         = integ,
+                    current_vals  = current_vals,
+                    finite_counts = rowSums(is.finite(integ)))
+      agg_cache[[key]] <<- bundle
+      bundle
     }
-
-    # Cache finite counts to avoid redundant rowSums across metric_specs
-    finite_counts = rowSums(is.finite(integ))
 
     results = vector("list", length(metric_specs))
     for (s_i in seq_along(metric_specs)) {
       spec     = metric_specs[[s_i]]
+      agg          = get_agg(spec)
+      integ        = agg$integ
+      current_vals = agg$current_vals
       spec_min = spec$min_years %||% MIN_YEARS
-      ok_rows  = which(finite_counts >= spec_min)
+      ok_rows  = which(agg$finite_counts >= spec_min)
       out_vals = rep(NA_real_, nrow(integ))
 
       if (length(ok_rows) > 0) {
@@ -1261,8 +1322,13 @@ run_metric_pipeline = function(config) {
   last_date_iso = format(max(dates, na.rm = TRUE))
   message("Last date: ", last_date_iso)
 
-  # Build timescale info
-  if (nzchar(periods_env)) {
+  # Build timescale info.
+  # A config-level timescale_info wins over both env vars. Metrics whose window
+  # is not an accumulation period use this so their outputs are not named as if
+  # they were (e.g. CDD's 730-day censoring window is "cap730", not "730d").
+  if (!is.null(config$timescale_info)) {
+    timescale_info = config$timescale_info
+  } else if (nzchar(periods_env)) {
     pd = as.numeric(strsplit(periods_env, ",")[[1]])
     timescale_info = list(lengths = pd, names = paste0(pd, "d"))
   } else {
