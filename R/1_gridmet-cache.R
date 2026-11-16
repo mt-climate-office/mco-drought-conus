@@ -1,6 +1,6 @@
 ##############################################################
 # File: R/1_gridmet-cache.R
-# Title: GridMET local cache (timestamp-conditional refresh; NO merge)
+# Title: GridMET local cache (size-conditional refresh from THREDDS; NO merge)
 # Author: Dr. Zachary H. Hoylman
 # Date: 3-4-2026
 # Conventions: "=", |> , explicit pkg::fun namespaces.
@@ -16,8 +16,18 @@ invisible(fs::dir_create(raw_base))
 .abs = function(p) as.character(fs::path_abs(fs::path_expand(p)))
 
 # ---- configuration -----------------------------------------------------------
+# Source: the THREDDS fileServer endpoint, which serves the same annual NetCDF
+# files as the old static mirror (www.northwestknowledge.net/metdata/data/).
+# Switched 2026-11-15 after the static mirror began returning 404 for every path
+# and stalled the nightly run for three days. Override the base with
+# GRIDMET_BASE_URL if the host moves again.
+.gridmet_base_url = Sys.getenv(
+  "GRIDMET_BASE_URL",
+  unset = "https://thredds.northwestknowledge.net/thredds/fileServer/MET"
+)
+
 .gridmet_url_for_year = function(var, year) {
-  sprintf("https://www.northwestknowledge.net/metdata/data/%s_%d.nc", var, year)
+  sprintf("%s/%s/%s_%d.nc", .gridmet_base_url, var, var, year)
 }
 
 .gridmet_dirs = function(var) {
@@ -108,9 +118,40 @@ invisible(fs::dir_create(raw_base))
   invisible(TRUE)
 }
 
-# ---- download raw annuals (timestamp-conditional) ----------------------------
-# Uses curl -R (preserve server Last-Modified as local mtime) and
-# -z <file> (skip download if remote is not newer than local file).
+# ---- download raw annuals (size-conditional) ---------------------------------
+# THREDDS fileServer sends no Last-Modified header and ignores
+# If-Modified-Since, so curl -z cannot be used: it would re-download the whole
+# 1979-present archive (~18 GB) every night. Instead we HEAD each file and
+# download only when the local copy is missing or its size differs from the
+# server's Content-Length. The files are compressed, so any appended day or
+# revised value changes the size.
+#
+# A replaced file gets mtime = now, which is what the downstream freshness check
+# (raw mtime > output mtime) needs; an untouched file keeps its existing mtime.
+
+.gridmet_curl = function(args) {
+  out = suppressWarnings(system2(
+    "curl",
+    c("-sS", "-f", "-L", "--cacert", shQuote(.gridmet_ca_bundle), args),
+    stdout = TRUE, stderr = TRUE
+  ))
+  status = attr(out, "status")
+  if (!is.null(status) && status != 0)
+    stop("curl failed (exit ", status, "): ", paste(out, collapse = " "))
+  out
+}
+
+#' Size in bytes the server reports for a URL. -f makes a 404 an error here
+#' rather than a silently "successful" HTML error page.
+.gridmet_remote_size = function(url) {
+  hdr = .gridmet_curl(c("-I", shQuote(url)))
+  cl  = grep("^content-length:", hdr, ignore.case = TRUE, value = TRUE)
+  n   = suppressWarnings(as.numeric(trimws(sub("^[^:]*:", "", cl[length(cl)]))))
+  if (!length(n) || is.na(n) || n <= 0)
+    stop("No usable Content-Length for ", url)
+  n
+}
+
 gridmet_download_year = function(var, year) {
   dirs = .gridmet_dirs(var)
   fs::dir_create(dirs$raw_dir)
@@ -118,31 +159,31 @@ gridmet_download_year = function(var, year) {
   url = .gridmet_url_for_year(var, year)
   out = .gridmet_year_nc(var, year)
 
-  # -R: set local mtime to server Last-Modified
-  # -z: send If-Modified-Since; skip download if remote is not newer
-  # --cacert: verify against [system roots + pinned intermediate] so the server's
-  #           incomplete chain validates (see .build_ca_bundle above). NOT --insecure.
-  extra = c(
-    if (fs::file_exists(out)) c("-R", "-z", shQuote(out)) else "-R",
-    "--cacert", shQuote(.gridmet_ca_bundle)
-  )
+  remote_size = .retry(3, 3, .gridmet_remote_size(url))
+  local_size  = if (fs::file_exists(out)) as.numeric(fs::file_info(out)$size) else NA_real_
 
-  message("Checking ", var, " ", year)
+  if (!is.na(local_size) && local_size == remote_size) return(invisible(out))
+
+  message("Downloading ", var, " ", year, " (", remote_size, " bytes)")
+  # Download beside the target and rename only once the size is verified, so a
+  # failed or truncated transfer can never replace a good raw file.
+  tmp = paste0(out, ".part")
+  on.exit(if (fs::file_exists(tmp)) fs::file_delete(tmp), add = TRUE)
   .retry(3, 3, {
-    utils::download.file(url, out, method = "curl", extra = extra, mode = "wb", quiet = TRUE)
-    out
+    .gridmet_curl(c("-o", shQuote(tmp), shQuote(url)))
+    got = as.numeric(fs::file_info(tmp)$size)
+    if (is.na(got) || got != remote_size)
+      stop("Incomplete download of ", url, ": got ", got, " of ", remote_size, " bytes")
+    tmp
   })
-
-  if (!fs::file_exists(out) || fs::file_info(out)$size <= 0) {
-    stop("Download failed or empty file: ", out)
-  }
+  fs::file_move(tmp, out)
 
   invisible(out)
 }
 
 # ---- refresh all raw annuals (NO merge) --------------------------------------
 # Loops over every year from start_year to the current year.
-# Each file is only re-downloaded if the remote copy is newer (via curl -z).
+# Each file is only re-downloaded if its size differs from the server copy.
 gridmet_refresh_raw = function(var, start_year = 1979) {
   cy  = as.integer(format(Sys.Date(), "%Y"))
   yrs = seq.int(start_year, cy)
@@ -166,7 +207,7 @@ gridmet_refresh_pr_pet_vpd_tmmx_raw = function(
 
 # ---- auto-run (optional) -----------------------------------------------------
 if (sys.nframe() == 0) {
-  message(Sys.time(), " — GridMET sync (PR + PET + VPD + TMMX): timestamp-conditional refresh")
+  message(Sys.time(), " — GridMET sync (PR + PET + VPD + TMMX): size-conditional refresh from THREDDS")
   gridmet_refresh_pr_pet_vpd_tmmx_raw()
   message(Sys.time(), " — GridMET sync complete")
 }
