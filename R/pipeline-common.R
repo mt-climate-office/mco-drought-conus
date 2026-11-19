@@ -1162,9 +1162,23 @@ mosaic_all_periods_and_cleanup = function(period_dir_names, last_date_iso,
 .run_workers_generic = function(tiles_list, worker_fn, cores) {
   message("Parallel backend: mclapply (", cores, " workers) — reading from files per worker")
 
-  pbmcapply::pbmclapply(seq_along(tiles_list), worker_fn,
-                         mc.cores = cores, mc.preschedule = FALSE,
-                         ignore.interactive = TRUE)
+  out = pbmcapply::pbmclapply(seq_along(tiles_list), worker_fn,
+                              mc.cores = cores, mc.preschedule = FALSE,
+                              ignore.interactive = TRUE)
+
+  # pbmclapply runs a single-element job in-process, and if the worker raises
+  # any R warning there it returns list(value = <results>, warning = <cond>)
+  # instead of the plain results list. Callers index results by tile position,
+  # so that 2-element wrapper reads as two bogus results. Seen 2026-11-19: one
+  # CDD tile failed, its single-tile retry hit an lmomco warning, and the
+  # resulting NA tile index crashed the run. Unwrap it here.
+  if (is.list(out) && length(out) == 2L &&
+      identical(names(out), c("value", "warning")) &&
+      inherits(out$warning, "condition")) {
+    message("  worker warning: ", conditionMessage(out$warning))
+    out = out$value
+  }
+  out
 }
 
 #' Defensive post-processing of worker results.
@@ -1507,6 +1521,13 @@ run_metric_pipeline = function(config) {
     retry_res = .normalize_results(retry_raw)
 
     retry_ok = vapply(retry_res, function(x) isTRUE(x$ok), TRUE)
+    # retry_ok is used to index failed_idx, so the lengths must agree. If the
+    # retry came back malformed, treat every retried tile as still failed.
+    if (length(retry_ok) != length(failed_idx)) {
+      message(sprintf("  Retry returned %d result(s) for %d tile(s); treating all as failed",
+                      length(retry_ok), length(failed_idx)))
+      retry_ok = rep(FALSE, length(failed_idx))
+    }
     if (any(retry_ok)) {
       n_recovered = sum(retry_ok)
       message(sprintf("  Retry recovered %d/%d tile(s)", n_recovered, length(failed_idx)))

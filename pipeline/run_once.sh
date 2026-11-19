@@ -171,6 +171,11 @@ get_metric_date() {
 
 # Remove stale (dateless or wrong-dated) .tif files for the given metric prefixes.
 # Only runs when date is non-empty (i.e., the metric was recomputed this run).
+# Callers must pass the date just read by get_metric_date ("$_d"), NOT the
+# *_DATE variables: those are pre-seeded from the restored manifest, so they are
+# non-empty even when a metric skipped. Passing them deleted the restored
+# outputs on every skip run and the next sync emptied latest/ (2026-09-23,
+# 2026-11-17).
 # Dateless files are restored-from-S3 placeholders superseded by newly computed outputs.
 # Wrong-dated files are outputs from a prior pipeline run for the same metric.
 cleanup_metric_stale() {
@@ -219,40 +224,40 @@ Rscript "$PROJECT_DIR/R/1_gridmet-cache.R"
 echo "=== $(date) — Running precipitation metrics ==="
 Rscript "$PROJECT_DIR/R/2_metrics-precip.R"
 _d=$(get_metric_date "spi"); [ -n "$_d" ] && PRECIP_DATE="$_d"
-cleanup_metric_stale "$DATA_DIR/derived/conus_drought" "${PRECIP_DATE:-}" \
+cleanup_metric_stale "$DATA_DIR/derived/conus_drought" "$_d" \
   "spi" "precip-pon" "precip-dev" "precip-pctile" "precip-mm"
 s3_sync_derived
 
 echo "=== $(date) — Running SPEI metrics ==="
 Rscript "$PROJECT_DIR/R/3_metrics-spei.R"
 _d=$(get_metric_date "spei"); [ -n "$_d" ] && SPEI_DATE="$_d"
-cleanup_metric_stale "$DATA_DIR/derived/conus_drought" "${SPEI_DATE:-}" "spei"
+cleanup_metric_stale "$DATA_DIR/derived/conus_drought" "$_d" "spei"
 s3_sync_derived
 
 echo "=== $(date) — Running EDDI metrics ==="
 Rscript "$PROJECT_DIR/R/4_metrics-eddi.R"
 _d=$(get_metric_date "eddi"); [ -n "$_d" ] && EDDI_DATE="$_d"
-cleanup_metric_stale "$DATA_DIR/derived/conus_drought" "${EDDI_DATE:-}" "eddi"
+cleanup_metric_stale "$DATA_DIR/derived/conus_drought" "$_d" "eddi"
 s3_sync_derived
 
 echo "=== $(date) — Running VPD metrics ==="
 Rscript "$PROJECT_DIR/R/5_metrics-vpd.R"
 _d=$(get_metric_date "svpdi"); [ -n "$_d" ] && VPD_DATE="$_d"
-cleanup_metric_stale "$DATA_DIR/derived/conus_drought" "${VPD_DATE:-}" \
+cleanup_metric_stale "$DATA_DIR/derived/conus_drought" "$_d" \
   "svpdi" "vpd-pon" "vpd-dev" "vpd-pctile"
 s3_sync_derived
 
 echo "=== $(date) — Running tmax metrics ==="
 Rscript "$PROJECT_DIR/R/6_metrics-tmax.R"
 _d=$(get_metric_date "tmax-pctile"); [ -n "$_d" ] && TMAX_DATE="$_d"
-cleanup_metric_stale "$DATA_DIR/derived/conus_drought" "${TMAX_DATE:-}" \
+cleanup_metric_stale "$DATA_DIR/derived/conus_drought" "$_d" \
   "tmax-pctile" "tmax-dev"
 s3_sync_derived
 
 echo "=== $(date) — Running consecutive dry days metrics ==="
 Rscript "$PROJECT_DIR/R/7_metrics-cdd.R"
 _d=$(get_metric_date "scdd-010"); [ -n "$_d" ] && CDD_DATE="$_d"
-cleanup_metric_stale "$DATA_DIR/derived/conus_drought" "${CDD_DATE:-}" \
+cleanup_metric_stale "$DATA_DIR/derived/conus_drought" "$_d" \
   "cdd-005" "cdd-010" "cdd-025" "scdd-005" "scdd-010" "scdd-025"
 s3_sync_derived
 
